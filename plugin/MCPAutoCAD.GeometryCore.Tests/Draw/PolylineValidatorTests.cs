@@ -202,5 +202,26 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
             Assert.StartsWith("vertices: la polilínea cerrada se autointerseca (tramos ", e[0]);
             Assert.Contains("punto aproximado [", e[0]);
         }
+
+        [Fact]
+        public void Fallo33_cerrada_de_dos_vertices_con_arcos_es_valida()
+        {
+            var v = new List<(double x, double y)> { (0, 0), (2, 0) };
+            Assert.Empty(PolylineValidator.Validate(v, true, new[] { 1.0, 1.0 }));   // DONUT
+            Assert.Empty(PolylineValidator.Validate(v, true, new[] { 0.0, 0.5 }));   // "D": recta + arco
+            Assert.Empty(PolylineValidator.Validate(v, true, new[] { -1.0, -1.0 }));
+        }
+
+        [Fact]
+        public void Fallo33_cerrada_de_dos_vertices_sin_arco_o_con_arcos_opuestos_se_rechaza()
+        {
+            var v = new List<(double x, double y)> { (0, 0), (2, 0) };
+            Assert.Equal(PolylineValidator.ClosedNeedsThree, PolylineValidator.Validate(v, true, null)[0]);
+            Assert.Equal(PolylineValidator.ClosedNeedsThreeOrArc, PolylineValidator.Validate(v, true, new[] { 0.0, 0.0 })[0]);
+            Assert.Equal(PolylineValidator.TwoVertexRetrace, PolylineValidator.Validate(v, true, new[] { 1.0, -1.0 })[0]);
+            Assert.Equal(PolylineValidator.BulgesLength, PolylineValidator.Validate(v, true, new[] { 1.0 })[0]);
+            Assert.Equal(PolylineValidator.BulgeNotFinite(0), PolylineValidator.Validate(v, true, new[] { double.PositiveInfinity, 1.0 })[0]);
+            Assert.Equal(PolylineValidator.ClosedNeedsThreeOrArc, PolylineValidator.Validate(new List<(double x, double y)> { (0, 0) }, true, new[] { 1.0 })[0]);
+        }
     }
 }

@@ -7,16 +7,25 @@ namespace MCPAutoCAD.GeometryCore.Draw
     /// <summary>
     /// Validación pura de una polilínea 2D antes de crearla (protocol.md §5D.2). Los textos de error forman parte del
     /// contrato: no cambiarlos. Orden de comprobación (el handler responde con el primero):
-    /// (1) coordenadas finitas; (2) cerrada con menos de 3 vértices; (3) bulges (longitud y finitud);
+    /// (1) coordenadas finitas; (2) cerrada con menos de 3 vértices (2 se admiten si algún bulge ≠ 0 y no son opuestos, fallo 33); (3) bulges (longitud y finitud);
     /// (4) vértices duplicados consecutivos; (5) cerrada repitiendo el primero; (6) autointersección de la cerrada.
     /// La autointersección se evalúa solo si no hubo errores anteriores (un tramo de longitud cero no tiene dirección).
     /// </summary>
     public static class PolylineValidator
     {
+        /// <summary>Bulge considerado 0 (tramo recto).</summary>
+        private const double BulgeEpsilon = 1e-12;
+
         /// <summary>Tolerancia por defecto (unidades de dibujo).</summary>
         public const double DefaultTolerance = 1e-9;
 
         public const string ClosedNeedsThree = "vertices: una polilínea cerrada necesita al menos 3 vértices";
+
+        /// <summary>Fallo 33: mismo caso cuando la llamada trae bulges (pista de la excepción de 2 vértices con arco).</summary>
+        public const string ClosedNeedsThreeOrArc = "vertices: una polilínea cerrada necesita al menos 3 vértices (o 2 si algún tramo es un arco: bulge ≠ 0)";
+
+        /// <summary>Fallo 33: cerrada de 2 vértices cuyos dos arcos recorren el mismo camino (bulges opuestos): área nula.</summary>
+        public const string TwoVertexRetrace = "bulges: en una polilínea cerrada de 2 vértices los dos tramos recorren el mismo camino (bulges opuestos): área nula";
         public const string BulgesLength = "bulges: debe tener tantos elementos como vertices";
 
         /// <summary>Advertencia del handler cuando algún vértice trae z ≠ 0 (LWPOLYLINE es plana).</summary>
@@ -170,9 +179,26 @@ namespace MCPAutoCAD.GeometryCore.Draw
                 return errors;
             }
 
-            if (cerrada && n < 3)
+            // Fallo 33: AutoCAD admite una LWPOLYLINE cerrada de 2 vértices si algún tramo es un arco (DONUT: bulges 1 y 1;
+            // una "D": un tramo recto y uno en arco). Con los dos tramos rectos o con bulges opuestos (el segundo arco
+            // vuelve por el primero) el área es nula.
+            // Con 2 vértices y bulges de otra longitud, el error útil es el de la longitud (más abajo): no se añade este.
+            // Igual con un bulge no finito: su error (BulgeNotFinite) es el útil.
+            bool bulgesMalDimensionados = n == 2 && bulges != null
+                && (bulges.Count != 2 || !double.IsFinite(bulges[0]) || !double.IsFinite(bulges[1]));
+            if (cerrada && n < 3 && !bulgesMalDimensionados)
             {
-                errors.Add(ClosedNeedsThree);
+                bool dosConArco = n == 2 && bulges != null
+                    && double.IsFinite(bulges[0]) && double.IsFinite(bulges[1])
+                    && (Math.Abs(bulges[0]) > BulgeEpsilon || Math.Abs(bulges[1]) > BulgeEpsilon);
+                if (!dosConArco)
+                {
+                    errors.Add(bulges == null ? ClosedNeedsThree : ClosedNeedsThreeOrArc);
+                }
+                else if (Math.Abs(bulges![0] + bulges[1]) <= BulgeEpsilon)
+                {
+                    errors.Add(TwoVertexRetrace);
+                }
             }
 
             if (bulges != null)

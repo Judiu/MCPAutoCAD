@@ -28,7 +28,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         private static readonly string[] ItemAllowed = { "vertices", "cerrada", "bulges", "ancho" };
         private static readonly string[] Allowed = PrimitiveSupport.Concat(
             PrimitiveSupport.Concat(Own, Batch),
-            PrimitiveSupport.Concat(DrawWrite.CommonParams, EntityColor.ParamNames));
+            PrimitiveSupport.Concat(PrimitiveSupport.Concat(DrawWrite.CommonParams, EntityColor.ParamNames), PrimitiveSupport.RespuestaParam));
 
         public string Name => "polilinea";
 
@@ -60,7 +60,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
   ""properties"": {
     ""vertices"": { ""type"": ""array"", ""minItems"": 2, ""maxItems"": 1000, ""items"": " + PrimitiveSupport.PointSchema + @", ""description"": ""Vértices [x, y] en WCS (si traen z se ignora: la polilínea queda en el plano XY). Forma simple: no combinar con polilineas."" },
     ""cerrada"": { ""type"": ""boolean"", ""default"": false, ""description"": ""true = polilínea cerrada (no repita el primer vértice al final)."" },
-    ""bulges"": { ""type"": ""array"", ""items"": { ""type"": ""number"" }, ""description"": ""Bulge de cada tramo (misma longitud que vertices): bulges[i] = tramo del vértice i al i+1 (el último, al cierre). 0 = recto; 1 = semicírculo antihorario."" },
+    ""bulges"": { ""type"": ""array"", ""items"": { ""type"": ""number"" }, ""description"": ""Bulge de cada tramo (misma longitud que vertices): bulges[i] = tramo del vértice i al i+1 (el último, al cierre). 0 = recto; 1 = semicírculo antihorario. Cerrada con 2 vértices: válida si algún bulge ≠ 0 (p. ej. [1, 1] con ancho = DONUT)."" },
     ""ancho"": { ""type"": ""number"", ""minimum"": 0, ""default"": 0, ""description"": ""Ancho constante en unidades del dibujo (0 = línea fina)."" },
     ""polilineas"": { ""type"": ""array"", ""minItems"": 1, ""maxItems"": 100, ""items"": " + ItemSchema + @", ""description"": ""Lote: 1 a 100 polilíneas con sus propias vertices/cerrada/bulges/ancho; todas comparten capa, espacio, color y forzar. No combinar con la forma simple. Un solo paso de deshacer; si una falla, no se crea ninguna."" },
     ""capa"": " + DrawWrite.SchemaCapa + @",
@@ -68,7 +68,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     ""forzar"": " + DrawWrite.SchemaForzar + @",
     ""aceptar_sin_unidades"": " + DrawWrite.SchemaAceptarSinUnidades + @",
     ""color"": " + EntityColor.SchemaColor + @",
-    ""color_rgb"": " + EntityColor.SchemaColorRgb + @"
+    ""color_rgb"": " + EntityColor.SchemaColorRgb + @",
+    ""respuesta"": " + PrimitiveSupport.SchemaRespuesta + @"
   },
   ""additionalProperties"": false
 }");
@@ -118,6 +119,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
             /// <summary>true si vino en la forma de lote (polilineas).</summary>
             public bool Batch { get; }
+
+            /// <summary>Fallo 34: completa | resumen | handles.</summary>
+            public string Respuesta { get; init; } = PrimitiveSupport.RespuestaCompleta;
 
             public DrawWrite.Common Common { get; }
             public ColorSpec? Color { get; }
@@ -177,7 +181,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
             DrawWrite.Common common = DrawWrite.ReadCommon(p, null);
             ColorSpec? color = EntityColor.Read(p);
-            return new Params(items, hasBatch, common, color);
+            return new Params(items, hasBatch, common, color) { Respuesta = PrimitiveSupport.ReadRespuesta(p) };
         }
 
         /// <summary>
@@ -283,14 +287,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
                 tr.Commit();
                 Dictionary<string, object?> r = DrawWrite.Response(pid, handles, layer, resolved.Name, ins, warnings);
-                if (p.Batch)
-                {
-                    r["entidades"] = entidades;
-                }
-                else
-                {
-                    r["entidad"] = entidades[0];
-                }
+                PrimitiveSupport.PutEntities(r, entidades, p.Batch, p.Respuesta);
 
                 return r;
             }
@@ -303,6 +300,83 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     /// </summary>
     internal static class PrimitiveSupport
     {
+        // ---- Fallo 34: forma de la respuesta de las herramientas de dibujo con lote ----
+
+        public const string RespuestaCompleta = "completa";
+        public const string RespuestaResumen = "resumen";
+        public const string RespuestaHandles = "handles";
+
+        public static readonly string[] RespuestaParam = { "respuesta" };
+
+        private static readonly string[] RespuestaModos = { RespuestaCompleta, RespuestaResumen, RespuestaHandles };
+
+        public const string SchemaRespuesta =
+            @"{ ""type"": ""string"", ""enum"": [""completa"", ""resumen"", ""handles""], ""default"": ""completa"", ""description"": ""Detalle de la respuesta: completa (cada entidad con todos sus datos), resumen (handle y bbox con 4 decimales) o handles (solo la lista handles). En lotes grandes use resumen o handles para no gastar contexto."" }";
+
+        public static string ReadRespuesta(System.Text.Json.JsonElement p) =>
+            ParamReader.OptionalEnum(p, "respuesta", RespuestaModos) ?? RespuestaCompleta;
+
+        /// <summary>
+        /// Pone 'entidad' (forma simple) o 'entidades' (lote) en la respuesta según el modo: completa = tal cual; resumen =
+        /// solo handle y bbox redondeada a 4 decimales; handles = nada (la lista 'handles' ya está en la respuesta común).
+        /// </summary>
+        public static void PutEntities(Dictionary<string, object?> r, List<object> entidades, bool batch, string modo)
+        {
+            if (modo == RespuestaHandles)
+            {
+                return;
+            }
+
+            List<object> salida = entidades;
+            if (modo == RespuestaResumen)
+            {
+                salida = new List<object>(entidades.Count);
+                foreach (object o in entidades)
+                {
+                    if (o is not IDictionary<string, object?> e)
+                    {
+                        salida.Add(o);
+                        continue;
+                    }
+
+                    salida.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        ["handle"] = e.TryGetValue("handle", out object? h) ? h : null,
+                        ["bbox"] = e.TryGetValue("bbox", out object? b) ? Round4(b as double[][]) : null,
+                    });
+                }
+            }
+
+            if (batch)
+            {
+                r["entidades"] = salida;
+            }
+            else
+            {
+                r["entidad"] = salida[0];
+            }
+        }
+
+        private static double[][]? Round4(double[][]? box)
+        {
+            if (box == null)
+            {
+                return null;
+            }
+
+            var res = new double[box.Length][];
+            for (int i = 0; i < box.Length; i++)
+            {
+                res[i] = new double[box[i].Length];
+                for (int j = 0; j < box[i].Length; j++)
+                {
+                    res[i][j] = Math.Round(box[i][j], 4, MidpointRounding.AwayFromZero) + 0.0; // + 0.0: sin -0
+                }
+            }
+
+            return res;
+        }
+
         public const string PointSchema =
             @"{ ""type"": ""array"", ""items"": { ""type"": ""number"" }, ""minItems"": 2, ""maxItems"": 3, ""description"": ""Punto [x, y] o [x, y, z] en WCS (z = 0 si se omite)."" }";
 

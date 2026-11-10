@@ -316,7 +316,7 @@ namespace MCPAutoCAD.Plugin.Handlers
             {
                 throw new ToolException(
                     ErrorCodes.Internal,
-                    "Error interno del plugin de AutoCAD.",
+                    "Error interno del plugin de AutoCAD. Causa: ningún mecanismo de captura devolvió imagen.",
                     new Dictionary<string, object?> { ["detalle"] = "vista_png: ningún mecanismo devolvió imagen" });
             }
 

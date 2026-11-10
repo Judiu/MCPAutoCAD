@@ -403,13 +403,14 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
                 var img = new RasterImage();
                 DrawWrite.ApplyByLayer(img, db, layer.Id);
+                // Fallo 24 (en vivo, 0.10.1): Orientation antes de ImageDefId lanza InvalidOperationException ("not valid due
+                // to the current state of the object"). Orden del ejemplo de Autodesk: primero la definición, luego el marco.
+                img.ImageDefId = defId;
                 MarcoImagen m = plan.Marco;
                 img.Orientation = new CoordinateSystem3d(
                     AcadUtil.ToPoint3d(p.Posicion),
                     new Vector3d(m.UX, m.UY, 0.0),
                     new Vector3d(m.VX, m.VY, 0.0));
-                img.ImageDefId = defId;
-                img.ShowImage = true;
                 string handle = DrawWrite.Append(space, tr, img);
                 // Asocia la imagen con su definición (reactores persistentes, como IMAGEATTACH). Se abre en escritura en la misma
                 // transacción; la definición nueva ya está abierta así.

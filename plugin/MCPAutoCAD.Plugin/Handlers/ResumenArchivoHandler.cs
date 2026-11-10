@@ -171,7 +171,7 @@ namespace MCPAutoCAD.Plugin.Handlers
                     PluginLog.Error("resumen_archivo: excepción de AutoCAD leyendo '" + path + "' (" + ex.ErrorStatus + ")", ex);
                     throw new ToolException(
                         ErrorCodes.Internal,
-                        "Error interno del plugin de AutoCAD.",
+                        "Error interno del plugin de AutoCAD. Causa: e" + ex.ErrorStatus + " al leer el archivo (detalle en plugin.log).",
                         new Dictionary<string, object?> { ["detalle"] = Describe(ex) });
                 }
 

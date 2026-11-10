@@ -29,7 +29,7 @@ PY = VENV / "Scripts" / "python.exe"
 PROY_PLUGIN = REPO / "plugin" / "MCPAutoCAD.Plugin" / "MCPAutoCAD.Plugin.csproj"
 EXCLUIR_PLUGIN = {".pdb"}
 # Versión del paquete: independiente de la del servidor y la del plugin.
-PAQUETE_VERSION = "0.9.10"
+PAQUETE_VERSION = "0.9.11"
 # Manifest de herramientas que escribe el plugin al cargar en AutoCAD. Va junto al exe del servidor para que un PC
 # donde el plugin aún no cargó publique igualmente todas las herramientas (servidor 0.8.3, default_manifest_path).
 MANIFEST_PLUGIN = Path(os.path.expandvars(r"%LOCALAPPDATA%\MCPAutoCAD\manifest.json"))

@@ -27,7 +27,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         private static readonly string[] ItemAllowed = { "centro", "radio", "angulo_inicio", "angulo_fin" };
         private static readonly string[] Allowed = PrimitiveSupport.Concat(
             PrimitiveSupport.Concat(Own, Batch),
-            PrimitiveSupport.Concat(DrawWrite.CommonParams, EntityColor.ParamNames));
+            PrimitiveSupport.Concat(PrimitiveSupport.Concat(DrawWrite.CommonParams, EntityColor.ParamNames), PrimitiveSupport.RespuestaParam));
 
         public string Name => "arco";
 
@@ -69,7 +69,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     ""forzar"": " + DrawWrite.SchemaForzar + @",
     ""aceptar_sin_unidades"": " + DrawWrite.SchemaAceptarSinUnidades + @",
     ""color"": " + EntityColor.SchemaColor + @",
-    ""color_rgb"": " + EntityColor.SchemaColorRgb + @"
+    ""color_rgb"": " + EntityColor.SchemaColorRgb + @",
+    ""respuesta"": " + PrimitiveSupport.SchemaRespuesta + @"
   },
   ""additionalProperties"": false
 }");
@@ -82,7 +83,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         ""radio"": { ""type"": ""number"" },
         ""angulo_inicio"": { ""type"": ""number"" },
         ""angulo_fin"": { ""type"": ""number"" },
-        ""longitud"": { ""type"": [""number"", ""null""] }
+        ""longitud"": { ""type"": [""number"", ""null""] },
+        ""bbox"": { ""type"": [""array"", ""null""] }
       }
     }");
 
@@ -117,6 +119,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
             public List<Item> Items { get; }
             public bool Batch { get; }
+
+            /// <summary>Fallo 34: completa | resumen | handles.</summary>
+            public string Respuesta { get; init; } = PrimitiveSupport.RespuestaCompleta;
             public DrawWrite.Common Common { get; }
             public ColorSpec? Color { get; }
         }
@@ -170,7 +175,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
             DrawWrite.Common common = DrawWrite.ReadCommon(p, null);
             ColorSpec? color = EntityColor.Read(p);
-            return new Params(items, hasBatch, common, color);
+            return new Params(items, hasBatch, common, color) { Respuesta = PrimitiveSupport.ReadRespuesta(p) };
         }
 
         private static Item ParseItem(JsonElement src, string prefix)
@@ -242,19 +247,13 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                         ["angulo_inicio"] = AcadUtil.ToDegrees360(arc.StartAngle),
                         ["angulo_fin"] = AcadUtil.ToDegrees360(arc.EndAngle),
                         ["longitud"] = PrimitiveSupport.TryNumber(() => arc.Length),
+                        ["bbox"] = PrimitiveSupport.Box2D(arc),
                     });
                 }
 
                 tr.Commit();
                 Dictionary<string, object?> r = DrawWrite.Response(pid, handles, layer, resolved.Name, ins, warnings);
-                if (p.Batch)
-                {
-                    r["entidades"] = entidades;
-                }
-                else
-                {
-                    r["entidad"] = entidades[0];
-                }
+                PrimitiveSupport.PutEntities(r, entidades, p.Batch, p.Respuesta);
 
                 return r;
             }

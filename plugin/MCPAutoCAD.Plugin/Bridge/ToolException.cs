@@ -169,9 +169,17 @@ namespace MCPAutoCAD.Plugin.Bridge
         public static ToolException FromUnexpected(Exception ex)
         {
             string detail = ex.GetType().FullName + ": " + ex.Message;
+            // Fallo 24 (verificación 2026-11-10): el servidor solo muestra el mensaje; sin la causa, el agente no puede
+            // diagnosticar. Se añade el tipo y el mensaje de la excepción (recortado), sin la pila.
+            string causa = ex.GetType().Name + ": " + ex.Message;
+            if (causa.Length > 300)
+            {
+                causa = causa.Substring(0, 300) + "…";
+            }
+
             return new ToolException(
                 ErrorCodes.Internal,
-                "Error interno del plugin de AutoCAD.",
+                "Error interno del plugin de AutoCAD. Causa: " + causa + " (detalle en plugin.log).",
                 new Dictionary<string, object?> { ["detalle"] = detail });
         }
     }
