@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "autocad": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "mcp_autocad"],
+      "env": {
+        "PYTHONPATH": "C:\\LPSAPP\\MCPAutoCAD\\server"
+      }
+    }
+  }
+}

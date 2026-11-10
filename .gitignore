@@ -1,0 +1,43 @@
+# Compilación .NET
+bin/
+obj/
+.art/
+*.user
+.vs/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+server/build/
+
+# Paquetes generados
+dist/
+
+# Dibujos de AutoCAD: ninguno se versiona (planos de clientes, rótulo y biblioteca con datos de la empresa)
+*.dwg
+*.DWG
+*.bak
+*.dwl
+*.dwl2
+*.sv$
+
+# Configuración local de Claude
+.claude/settings.local.json
+
+# Datos de la empresa y de clientes (repo público): no versionar
+informes/
+.mcp.json
+tools/crear_rotulo.py
+
+# Notas de trabajo locales
+PLAN.md
+CLAUDE.md
+fallos_puente_autocad.md
+
+# Repositorio de GitHub creado por el usuario dentro de esta carpeta
+MCP_AutoCAD/

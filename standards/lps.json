@@ -1,0 +1,282 @@
+{
+ "version": 2,
+ "fuente": "Plano 6X12 normalizado (tests/fixtures/casa6x12_limpio.dwg tras aplicar docs/mapa_capas_6x12.json, 2026-10-28) + capas destino de capas_preferidas. Sustituye a la versión 1 (161 capas del plano madre sin limpiar, EXP 26-XXXX), guardada en standards/historico/lps_v1_6x12_sucio.json.",
+ "unidades": {
+  "insunits": 6,
+  "nombre": "m",
+  "measurement": 1
+ },
+ "ltscale_referencia": 0.0003,
+ "rotulo": {
+  "bloque": "LPS_ROTULO",
+  "archivo": "standards/LPS_ROTULO.dwg",
+  "capa": "Rotulo",
+  "nota": "PLANO_N usa formato MTEXT en línea (número grande + ' de' pequeño); el llenado debe conservarlo."
+ },
+ "capas_preferidas": {
+  "muros": "MUROS",
+  "cotas": "Cotas",
+  "textos": "TEXTOS",
+  "ejes": "EJES",
+  "columnas": "columnas",
+  "vigas": "VIGA",
+  "puertas": "PUERTAS",
+  "ventanas": "ventanas",
+  "filos": "Filos",
+  "achurados": "Achurados",
+  "mobiliario_fijo": "muebles fijos",
+  "sanitarios": "Sanitarios",
+  "estructura": "6. ESTRUCTURA",
+  "mamposteria": "MAMPOSTERIA",
+  "niveles": "niveles",
+  "escaleras": "ESCALERA",
+  "proyeccion": "Proyeccion",
+  "rotulo": "Rotulo",
+  "observaciones_mcp": "MCP-OBSERVACIONES",
+  "preview_mcp": "MCP-PREVIEW",
+  "dibujo_mcp": "MCP-DIBUJO"
+ },
+ "capas_mcp": {
+  "MCP-OBSERVACIONES": {
+   "color": 1,
+   "tipo_linea": "Continuous",
+   "grosor": 35,
+   "plot": 1
+  },
+  "MCP-PREVIEW": {
+   "color": 4,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 0
+  },
+  "MCP-DIBUJO": {
+   "color": 3,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  }
+ },
+ "grupos_externos_permitidos": {
+  "cype": [
+   "ARM_*",
+   "ALZ_*",
+   "CIM_*",
+   "SEC_*",
+   "VIG_*",
+   "TAB_*",
+   "ALZADO_*",
+   "ARR_*",
+   "COLUMNA_*",
+   "COLUMNAS_EJES",
+   "LEY_*",
+   "PA_*",
+   "PILCP*",
+   "PUNTO_FIJO",
+   "RECUAD_*",
+   "SECC_*",
+   "TABLAS",
+   "TEXTO_TABLAS",
+   "VGC_*",
+   "ZAP_*"
+  ]
+ },
+ "capas_permitidas": {
+  "0": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "6. ESTRUCTURA": {
+   "color": 5,
+   "tipo_linea": "Continuous",
+   "grosor": 70,
+   "plot": 1
+  },
+  "AC": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "Achurados": {
+   "color": 151,
+   "tipo_linea": "Continuous",
+   "grosor": 9,
+   "plot": 1
+  },
+  "Antepecho": {
+   "color": 201,
+   "tipo_linea": "Continuous",
+   "grosor": 20,
+   "plot": 1
+  },
+  "columnas": {
+   "color": 1,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "Cotas": {
+   "color": 8,
+   "tipo_linea": "Continuous",
+   "grosor": 13,
+   "plot": 1
+  },
+  "DEFPOINTS": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 0
+  },
+  "EJES": {
+   "color": 1,
+   "tipo_linea": "CENTER",
+   "grosor": 5,
+   "plot": 1
+  },
+  "Filos": {
+   "color": 3,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "m fijos": {
+   "color": 2,
+   "tipo_linea": "Continuous",
+   "grosor": 0,
+   "plot": 1
+  },
+  "muebles fijos": {
+   "color": 2,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "MUR BAAAJO": {
+   "color": 241,
+   "tipo_linea": "Continuous",
+   "grosor": 20,
+   "plot": 1
+  },
+  "MUROS": {
+   "color": 155,
+   "tipo_linea": "Continuous",
+   "grosor": 50,
+   "plot": 1
+  },
+  "Proyeccion": {
+   "color": 220,
+   "tipo_linea": "CONTINUA",
+   "grosor": 5,
+   "plot": 1
+  },
+  "PUERTAS": {
+   "color": 9,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "Rotulo": {
+   "color": 150,
+   "tipo_linea": "Continuous",
+   "grosor": 80,
+   "plot": 1
+  },
+  "Sanitarios": {
+   "color": 6,
+   "tipo_linea": "Continuous",
+   "grosor": 5,
+   "plot": 1
+  },
+  "TEXTOS": {
+   "color": 152,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "ventanas": {
+   "color": 6,
+   "tipo_linea": "Continuous",
+   "grosor": 9,
+   "plot": 1
+  },
+  "VIGA": {
+   "color": 2,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "MAMPOSTERIA": {
+   "color": 30,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "niveles": {
+   "color": 8,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "ESCALERA": {
+   "color": 6,
+   "tipo_linea": "Continuous",
+   "grosor": 5,
+   "plot": 1
+  }
+ },
+ "mapa_normalizacion": {
+  "Q-SPCQ-____-OTLN": "muebles fijos",
+  "P-SANR-FIXT-OTLN": "muebles fijos",
+  "Furniture": "muebles fijos",
+  "S-COLS": "6. ESTRUCTURA",
+  "ACHU": "6. ESTRUCTURA",
+  "TEXT": "EJES",
+  "A-DOOR-____-OTLN": "PUERTAS",
+  "3D EJES ESTRUCTURALES_Pen_No__7": "TEXTOS",
+  "3D LINEAS DE PLANTA_Pen_No__7": "Rotulo",
+  "Dibujo 2D - General_Pen_No__102": "Rotulo",
+  "Dibujo 2D - General_Pen_No__142": "Rotulo"
+ },
+ "biblioteca_vanos": {
+  "Puerta Dinamica LM": {
+   "tipo": "puerta",
+   "eje_ancho": "x",
+   "direccion_espesor": "+y",
+   "ancho_nominal": 0.9,
+   "espesor_nominal": 0.13,
+   "propiedad_ancho": "DistanceGeneralVano",
+   "capa": "puertas",
+   "ajuste_ancho": 0
+  },
+  "PuertaBaño": {
+   "tipo": "puerta",
+   "eje_ancho": "x",
+   "direccion_espesor": "+y",
+   "ancho_nominal": 0.65,
+   "espesor_nominal": 0.1,
+   "propiedad_ancho": null,
+   "capa": "puertas",
+   "ajuste_ancho": 0
+  },
+  "VENTANA01": {
+   "tipo": "ventana",
+   "eje_ancho": "y",
+   "direccion_espesor": "-x",
+   "ancho_nominal": 0.3,
+   "espesor_nominal": 0.12,
+   "propiedad_ancho": "Distance1",
+   "capa": "ventanas",
+   "ajuste_ancho": 0.0045
+  }
+ },
+ "notas_v2": {
+  "biblioteca_vanos": "Catálogo de la Fase 4B (2026-10-31, protocol.md §5G.1; clave de biblioteca autorizada por el usuario el 2026-10-31): orientación de cada bloque de puerta/ventana de standards/ extraído del 6X12 (eje local a lo largo del vano, eje local que entra en el muro desde la cara del punto base, ancho nominal de la definición y profundidad de sus jambas) y nombre de la propiedad dinámica de ancho. propiedad_ancho lleva los nombres reales leídos en el gate en vivo (2026-10-31): la puerta es ambigua por valor (DistanceGeneralVano y DistanceHojaDoble) y sin nombre caería a escala; con null, el plugin deduce la única propiedad de distancia escribible cuyo valor coincide con ancho_nominal + ajuste_ancho. ajuste_ancho se suma al ancho para el valor de la propiedad: VENTANA01 lleva 0,0045 porque Distance1 mide desde un origen en -0,0045 (con 1,2 el largo real es 1,1955). TANQUE 1000 LTS no es un bloque de vano y no va aquí. PuertaBaño en la biblioteca lleva el punto base en la esquina inferior izquierda de su geometría (en el 6X12 la definición tiene la geometría a 15 m del origen).",
+  "capas_permitidas": "20 capas del 6X12 normalizado (las 21 de docs/mapa_capas_6x12.json 'resultado_copia' sin I-FURN-____-OTLN, capa Revit vacía que Database.Purge no elimina: auditar_capas debe marcarla) + VIGA, MAMPOSTERIA, niveles y ESCALERA, destinos de capas_preferidas que no están en el 6X12 (propiedades del plano madre). Propiedades comprobadas con ODA + ezdxf sobre casa6x12_limpio.dwg.",
+  "AC": "Se mantiene porque sigue en el plano con contenido dentro de bloques (tanque de agua, rosa de la localización); sus entidades sueltas del modelo pasaron a Sanitarios. Candidata a revisión: si los bloques se normalizan, puede salir del estándar.",
+  "Antepecho, MUR BAAAJO, m fijos": "Se mantienen por decisión del usuario (2026-10-27/28): antepechos en cortes, viewport grande de Layout1 y marco del área que se entrega.",
+  "mapa_normalizacion": "Pares origen -> destino decididos para el 6X12 (docs/mapa_capas_6x12.json). El mapa es GLOBAL: auditar_capas lo aplica por nombre de capa a cualquier plano (no por espacio ni por proyecto) y solo como 'sugerencia' y 'sugerencia_patron', con prioridad sobre la heurística; nunca cambia la clasificación ni mueve entidades (normalizar_capas sigue necesitando el mapa explícito del usuario). Algunos pares son específicos del contenido del 6X12: TEXT -> EJES (allí TEXT tenía los rótulos de las burbujas de ejes; en otro plano TEXT puede ser texto general y la heurística diría TEXTOS) y S-COLS / ACHU -> 6. ESTRUCTURA (rellenos y bordes de losa en cortes, no columnas): revise la sugerencia antes de normalizar otro plano. No incluye '0' -> Cotas ni AC -> Sanitarios (origen en capas_permitidas: solo se movieron entidades sueltas del modelo). 3D EJES ESTRUCTURALES_Pen_No__7 va a TEXTOS en el modelo; en Layout1 se mandó a Rotulo.",
+  "LPS_ROTULO.dwg": "Regenerado el 2026-10-31 (rótulo v2): sus entidades están en 0 (logo) y Rotulo, con las propiedades efectivas de la v1 fijadas en cada entidad (aspecto impreso igual). Cadena: crear_rotulo.py → agregar_logo.py → normalizar_capas_rotulo.py → ODA. Respaldo de la v1 en standards/historico/LPS_ROTULO_v1.dwg."
+ }
+}

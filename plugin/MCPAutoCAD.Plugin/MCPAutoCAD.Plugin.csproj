@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Plugin de AutoCAD 2026 (servidor del named pipe). Ver protocol.md §9.
+    Las DLL de AutoCAD se referencian con Private=false: NUNCA deben copiarse a la salida.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <AssemblyName>MCPAutoCAD.Plugin</AssemblyName>
+    <RootNamespace>MCPAutoCAD.Plugin</RootNamespace>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- acmgd.dll expone tipos WPF en su API pública; sin WPF el compilador puede pedir esas referencias. -->
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <PlatformTarget>x64</PlatformTarget>
+    <!-- Copia las dependencias NuGet a la salida (escenario de plugin cargado por un host). -->
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Version>0.10.0</Version>
+    <AssemblyVersion>0.10.0.0</AssemblyVersion>
+    <FileVersion>0.10.0.0</FileVersion>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- Carpeta de AutoCAD contra la que se compila (2026 = R25.1 por defecto; 2027 = R26.0: -p:AcadDir=...). -->
+    <AcadDir Condition="'$(AcadDir)' == ''">D:\Program Files\Autodesk\AutoCAD 2026\</AcadDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="acmgd">
+      <HintPath>$(AcadDir)acmgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="acdbmgd">
+      <HintPath>$(AcadDir)acdbmgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="accoremgd">
+      <HintPath>$(AcadDir)accoremgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Copia del estándar LPS junto a la DLL (protocol.md §2.2 y §9), de la biblioteca de bloques (§5D.5, §5G.6) y de la plantilla (§5H.4, solo si existe). -->
+  <ItemGroup>
+    <None Include="..\..\standards\lps.json" Link="lps.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\standards\LPS_ROTULO.dwg" Link="biblioteca\LPS_ROTULO.dwg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\standards\Puerta Dinamica LM.dwg" Link="biblioteca\Puerta Dinamica LM.dwg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\standards\PuertaBaño.dwg" Link="biblioteca\PuertaBaño.dwg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\standards\VENTANA01.dwg" Link="biblioteca\VENTANA01.dwg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\standards\TANQUE 1000 LTS.dwg" Link="biblioteca\TANQUE 1000 LTS.dwg" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\standards\LPS_METROS.dwt" Link="plantillas\LPS_METROS.dwt" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\standards\LPS_METROS.dwt')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MCPAutoCAD.GeometryCore\MCPAutoCAD.GeometryCore.csproj" />
+  </ItemGroup>
+
+</Project>

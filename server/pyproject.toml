@@ -1,0 +1,19 @@
+[project]
+name = "mcp-autocad"
+version = "0.8.6"
+description = "Servidor MCP (stdio) que traduce herramientas MCP a JSON-RPC sobre el named pipe del plugin de AutoCAD 2026."
+requires-python = ">=3.12"
+dependencies = [
+    "mcp==2.0.0",  # API de bajo nivel marcada como provisional: fijar versión
+    "pywin32; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+oda = ["ezdxf>=1.4"]  # respaldo sin AutoCAD (protocol.md §5H.3)
+
+[project.scripts]
+mcp-autocad = "mcp_autocad.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

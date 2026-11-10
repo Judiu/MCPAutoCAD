@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Cálculo geométrico puro: SIN ninguna referencia a AutoCAD, testeable con xUnit. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>MCPAutoCAD.GeometryCore</AssemblyName>
+    <RootNamespace>MCPAutoCAD.GeometryCore</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+</Project>

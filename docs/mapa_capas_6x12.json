@@ -1,0 +1,54 @@
+{
+  "_descripcion": "Mapa de capas decidido por el usuario el 2026-10-27/28 sobre el 6X12 limpio (tests/fixtures/casa6x12_limpio.dwg, entregable 'Casa6X12_Escalera_Derecha.dwg'). Aplicado y verificado el 2026-10-28 sobre la copia tests/fixtures/faseL_limpio_trabajo.dwg con normalizar_capas 0.6.1 (33 -> 21 capas). Evidencia: imágenes por capa (ezdxf) y consultas en AutoCAD.",
+  "pasos": [
+    {
+      "herramienta": "normalizar_capas",
+      "espacios": ["modelo"],
+      "borrar_capas_origen_vacias": true,
+      "mapa": {
+        "0": "Cotas",
+        "Q-SPCQ-____-OTLN": "muebles fijos",
+        "P-SANR-FIXT-OTLN": "muebles fijos",
+        "S-COLS": "6. ESTRUCTURA",
+        "AC": "Sanitarios",
+        "TEXT": "EJES",
+        "ACHU": "6. ESTRUCTURA",
+        "Furniture": "muebles fijos",
+        "A-DOOR-____-OTLN": "PUERTAS",
+        "3D EJES ESTRUCTURALES_Pen_No__7": "TEXTOS"
+      }
+    },
+    {
+      "herramienta": "normalizar_capas",
+      "espacios": ["Layout1"],
+      "borrar_capas_origen_vacias": true,
+      "mapa": {
+        "3D LINEAS DE PLANTA_Pen_No__7": "Rotulo",
+        "Dibujo 2D - General_Pen_No__102": "Rotulo",
+        "Dibujo 2D - General_Pen_No__142": "Rotulo",
+        "3D EJES ESTRUCTURALES_Pen_No__7": "Rotulo"
+      }
+    },
+    { "herramienta": "borrar", "handles": ["94716", "94717"], "motivo": "capa ESC: dos líneas de 3 cm, restos de cota" },
+    { "herramienta": "purgar" }
+  ],
+  "se_mantienen": ["Antepecho", "MUR BAAAJO", "m fijos"],
+  "_evidencia": {
+    "Q-SPCQ-____-OTLN": "estufa de 4 puestos de la cocina (objeto de Revit, 996 entidades sueltas)",
+    "P-SANR-FIXT-OTLN": "lavaplatos del mesón (110 entidades)",
+    "S-COLS": "relleno (HATCH) de losas y muros cortados en los cortes, no columnas",
+    "ACHU": "bordes de losa en los cortes (líneas de 0,54 m en pares a 0,30 m)",
+    "AC": "tanque de agua de cubierta en cortes/fachadas y la rosa de la localización (la capa se conserva: tiene contenido dentro de bloques)",
+    "TEXT": "rótulos de las burbujas de ejes",
+    "0": "marcas de cota sueltas y una línea en un corte; SOLO modelo (los viewports de los layouts siguen en 0)",
+    "Furniture": "bloques de Revit de lavadora y lavadero",
+    "A-DOOR-____-OTLN": "marco de una puerta (línea de 2,13 m)",
+    "3D EJES ESTRUCTURALES_Pen_No__7": "en el modelo, el texto 'ESC: 1: 400' de la localización; en Layout1, textos del rótulo",
+    "3D LINEAS DE PLANTA_Pen_No__7 / Dibujo 2D - General_Pen_No__102/142": "líneas, textos y sombreado del rótulo en el espacio papel de Layout1 (no están dentro de bloques)",
+    "ESC": "dos líneas de 3 cm (basura)",
+    "Antepecho": "antepechos de ventana en los cortes",
+    "MUR BAAAJO": "solo contiene el viewport grande de Layout1",
+    "m fijos": "marco del área que se entrega"
+  },
+  "resultado_copia": "21 capas: 0, 6. ESTRUCTURA, AC, Achurados, Antepecho, columnas, Cotas, DEFPOINTS, EJES, Filos, I-FURN-____-OTLN (sin entidades visibles; Database.Purge no la purga), m fijos, muebles fijos, MUR BAAAJO, MUROS, Proyeccion, PUERTAS, Rotulo, Sanitarios, TEXTOS, ventanas"
+}

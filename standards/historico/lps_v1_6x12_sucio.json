@@ -1,0 +1,1037 @@
+{
+ "version": 1,
+ "fuente": "Plano madre 6X12 arquitectónico (EXP 26-XXXX), 2026-10-25",
+ "unidades": {
+  "insunits": 6,
+  "nombre": "m",
+  "measurement": 1
+ },
+ "ltscale_referencia": 0.0003,
+ "rotulo": {
+  "bloque": "LPS_ROTULO",
+  "archivo": "standards/LPS_ROTULO.dwg",
+  "capa": "Rotulo",
+  "nota": "PLANO_N usa formato MTEXT en línea (número grande + ' de' pequeño); el llenado debe conservarlo."
+ },
+ "capas_preferidas": {
+  "muros": "MUROS",
+  "cotas": "Cotas",
+  "textos": "TEXTOS",
+  "ejes": "EJES",
+  "columnas": "columnas",
+  "vigas": "VIGA",
+  "puertas": "PUERTAS",
+  "ventanas": "ventanas",
+  "filos": "Filos",
+  "achurados": "Achurados",
+  "mobiliario_fijo": "muebles fijos",
+  "sanitarios": "Sanitarios",
+  "estructura": "6. ESTRUCTURA",
+  "mamposteria": "MAMPOSTERIA",
+  "niveles": "niveles",
+  "escaleras": "ESCALERA",
+  "proyeccion": "Proyeccion",
+  "rotulo": "Rotulo",
+  "observaciones_mcp": "MCP-OBSERVACIONES",
+  "preview_mcp": "MCP-PREVIEW",
+  "dibujo_mcp": "MCP-DIBUJO"
+ },
+ "capas_mcp": {
+  "MCP-OBSERVACIONES": {
+   "color": 1,
+   "tipo_linea": "Continuous",
+   "grosor": 35,
+   "plot": 1
+  },
+  "MCP-PREVIEW": {
+   "color": 4,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 0
+  },
+  "MCP-DIBUJO": {
+   "color": 3,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  }
+ },
+ "grupos_externos_permitidos": {
+  "cype": [
+   "ARM_*",
+   "ALZ_*",
+   "CIM_*",
+   "SEC_*",
+   "VIG_*",
+   "TAB_*"
+  ]
+ },
+ "capas_permitidas": {
+  "0": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "EJES": {
+   "color": 1,
+   "tipo_linea": "CENTER",
+   "grosor": 5,
+   "plot": 1
+  },
+  "MUEBLES2": {
+   "color": 251,
+   "tipo_linea": "Continuous",
+   "grosor": 5,
+   "plot": 1
+  },
+  "DEFPOINTS": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 0
+  },
+  "TEXT": {
+   "color": 250,
+   "tipo_linea": "Continuous",
+   "grosor": 20,
+   "plot": 1
+  },
+  "Cotas": {
+   "color": 8,
+   "tipo_linea": "Continuous",
+   "grosor": 13,
+   "plot": 1
+  },
+  "MUROS": {
+   "color": 155,
+   "tipo_linea": "Continuous",
+   "grosor": 50,
+   "plot": 1
+  },
+  "VENTANA PUERTA": {
+   "color": 250,
+   "tipo_linea": "Continuous",
+   "grosor": 13,
+   "plot": 1
+  },
+  "CORTE": {
+   "color": 220,
+   "tipo_linea": "Continuous",
+   "grosor": 80,
+   "plot": 1
+  },
+  "MUR BAAAJO": {
+   "color": 241,
+   "tipo_linea": "Continuous",
+   "grosor": 20,
+   "plot": 1
+  },
+  "PUERTAS VENTANAS": {
+   "color": 251,
+   "tipo_linea": "Continuous",
+   "grosor": 0,
+   "plot": 1
+  },
+  "TEXTO": {
+   "color": 253,
+   "tipo_linea": "Continuous",
+   "grosor": 5,
+   "plot": 1
+  },
+  "ESTRUCTURA": {
+   "color": 250,
+   "tipo_linea": "Continuous",
+   "grosor": 60,
+   "plot": 1
+  },
+  "Achurados": {
+   "color": 151,
+   "tipo_linea": "Continuous",
+   "grosor": 9,
+   "plot": 1
+  },
+  "LINEAS SUAVES": {
+   "color": 250,
+   "tipo_linea": "Continuous",
+   "grosor": 5,
+   "plot": 1
+  },
+  "VEN3ALZADA": {
+   "color": 250,
+   "tipo_linea": "Continuous",
+   "grosor": 5,
+   "plot": 1
+  },
+  "punteadas": {
+   "color": 150,
+   "tipo_linea": "ACAD_ISO02W100",
+   "grosor": 15,
+   "plot": 1
+  },
+  "AGUAS N": {
+   "color": 95,
+   "tipo_linea": "Continuous",
+   "grosor": 20,
+   "plot": 1
+  },
+  "DESAGUES": {
+   "color": 181,
+   "tipo_linea": "Continuous",
+   "grosor": 25,
+   "plot": 1
+  },
+  "TEJA": {
+   "color": 250,
+   "tipo_linea": "Continuous",
+   "grosor": 20,
+   "plot": 1
+  },
+  "2D Drafting - General_Pen_No__2": {
+   "color": 8,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "2D Drafting - General_Pen_No__1": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "ATRÁS": {
+   "color": 251,
+   "tipo_linea": "Continuous",
+   "grosor": 9,
+   "plot": 1
+  },
+  "MEDIO": {
+   "color": 181,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "TEXTOS": {
+   "color": 152,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "ESCALERAS": {
+   "color": 232,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "MUEBLE": {
+   "color": 33,
+   "tipo_linea": "Continuous",
+   "grosor": 13,
+   "plot": 1
+  },
+  "TEJALI2": {
+   "color": 250,
+   "tipo_linea": "Continuous",
+   "grosor": 13,
+   "plot": 1
+  },
+  "VEN1ALZADA": {
+   "color": 250,
+   "tipo_linea": "Continuous",
+   "grosor": 13,
+   "plot": 1
+  },
+  "MURALZADA": {
+   "color": 250,
+   "tipo_linea": "Continuous",
+   "grosor": 20,
+   "plot": 1
+  },
+  "3D LINEAS DE PLANTA_Pen_No__7": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "Dibujo 2D - General_Pen_No__142": {
+   "color": 8,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "Dibujo 2D - General_Pen_No__102": {
+   "color": 254,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "3D EJES ESTRUCTURALES_Pen_No__7": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "3D EJES ESTRUCTURALES_Pen_No__19": {
+   "color": 255,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "NOMENCLATURA": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 20,
+   "plot": 1
+  },
+  "CODPREDIO": {
+   "color": 8,
+   "tipo_linea": "Continuous",
+   "grosor": 0,
+   "plot": 1
+  },
+  "EDIFICACION": {
+   "color": 9,
+   "tipo_linea": "Continuous",
+   "grosor": 0,
+   "plot": 1
+  },
+  "CODIGOMANZANA": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "PREDIOURBANO": {
+   "color": 8,
+   "tipo_linea": "Continuous",
+   "grosor": 9,
+   "plot": 1
+  },
+  "BARRIOS": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 5,
+   "plot": 1
+  },
+  "DISENO": {
+   "color": 152,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "2D Drafting - General_Pen_No__82": {
+   "color": 253,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "2D Drafting - General_Pen_No__62": {
+   "color": 253,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "EDIFICACION_Pen_No__9": {
+   "color": 135,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "PREDIOURBANO_Pen_No__8": {
+   "color": 14,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "CODPREDIO_Pen_No__8": {
+   "color": 14,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "BARRIOS_Pen_No__7": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "MAMPOSTERIA": {
+   "color": 30,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "6. ESTRUCTURA": {
+   "color": 5,
+   "tipo_linea": "Continuous",
+   "grosor": 70,
+   "plot": 1
+  },
+  "columnas": {
+   "color": 1,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "Layer5": {
+   "color": 6,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "Layer6": {
+   "color": 2,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "Layer7": {
+   "color": 3,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "Hidden P-V": {
+   "color": 252,
+   "tipo_linea": "HIDDEN",
+   "grosor": 0,
+   "plot": 1
+  },
+  "Puerta -Ventana": {
+   "color": 6,
+   "tipo_linea": "Continuous",
+   "grosor": 0,
+   "plot": 1
+  },
+  "ventanas": {
+   "color": 6,
+   "tipo_linea": "Continuous",
+   "grosor": 9,
+   "plot": 1
+  },
+  "Mobiliario": {
+   "color": 251,
+   "tipo_linea": "Continuous",
+   "grosor": 0,
+   "plot": 1
+  },
+  "HIDRAULICO sifones sanitarios": {
+   "color": 5,
+   "tipo_linea": "Continuous",
+   "grosor": 5,
+   "plot": 1
+  },
+  "01-NIVELES": {
+   "color": 82,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "ACHURADO": {
+   "color": 253,
+   "tipo_linea": "Continuous",
+   "grosor": 0,
+   "plot": 1
+  },
+  "hatch 1": {
+   "color": 253,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "AMOBLA": {
+   "color": 9,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "Capa1": {
+   "color": 30,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "Capa2": {
+   "color": 150,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "CT": {
+   "color": 20,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "ACOTACIONES": {
+   "color": 2,
+   "tipo_linea": "Continuous",
+   "grosor": 20,
+   "plot": 1
+  },
+  "TEXTO 0.4": {
+   "color": 4,
+   "tipo_linea": "Continuous",
+   "grosor": 5,
+   "plot": 1
+  },
+  "VIGA": {
+   "color": 2,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "ESCALERA": {
+   "color": 6,
+   "tipo_linea": "Continuous",
+   "grosor": 5,
+   "plot": 1
+  },
+  "DINTEL": {
+   "color": 1,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "MUROESTRUCTURAL": {
+   "color": 20,
+   "tipo_linea": "Continuous",
+   "grosor": 5,
+   "plot": 1
+  },
+  "Rotulo": {
+   "color": 150,
+   "tipo_linea": "Continuous",
+   "grosor": 80,
+   "plot": 1
+  },
+  "MURO": {
+   "color": 44,
+   "tipo_linea": "Continuous",
+   "grosor": 60,
+   "plot": 1
+  },
+  "CONCRETO": {
+   "color": 254,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "DETALLES": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "MU": {
+   "color": 6,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "HIERRO": {
+   "color": 1,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "COTA": {
+   "color": 4,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "LOGO1": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "GRUESA": {
+   "color": 2,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "Vigas": {
+   "color": 2,
+   "tipo_linea": "Continuous",
+   "grosor": 30,
+   "plot": 1
+  },
+  "COTAS-VIGAS": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "TITULO-TEXTOS": {
+   "color": 3,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "RE": {
+   "color": 3,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "AC": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "DELGADA": {
+   "color": 1,
+   "tipo_linea": "Continuous",
+   "grosor": 9,
+   "plot": 1
+  },
+  "VENT": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "REFUERZO": {
+   "color": 3,
+   "tipo_linea": "Continuous",
+   "grosor": 30,
+   "plot": 1
+  },
+  "LCOR": {
+   "color": 52,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "LADRILLO": {
+   "color": 30,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "CICLOP": {
+   "color": 6,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "1. Muros": {
+   "color": 160,
+   "tipo_linea": "Continuous",
+   "grosor": 35,
+   "plot": 1
+  },
+  "9. Cotas": {
+   "color": 2,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "6. ACHURADOS": {
+   "color": 252,
+   "tipo_linea": "Continuous",
+   "grosor": 0,
+   "plot": 1
+  },
+  "4. VENTANAS": {
+   "color": 44,
+   "tipo_linea": "Continuous",
+   "grosor": 0,
+   "plot": 1
+  },
+  "5. PUERTAS": {
+   "color": 2,
+   "tipo_linea": "Continuous",
+   "grosor": 0,
+   "plot": 1
+  },
+  "m fijos": {
+   "color": 2,
+   "tipo_linea": "Continuous",
+   "grosor": 0,
+   "plot": 1
+  },
+  "3. MOBILIARIO": {
+   "color": 104,
+   "tipo_linea": "Continuous",
+   "grosor": 0,
+   "plot": 1
+  },
+  "8. TEXTO": {
+   "color": 53,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "2. PISO": {
+   "color": 251,
+   "tipo_linea": "Continuous",
+   "grosor": 9,
+   "plot": 1
+  },
+  "GUIA P ILUMINACION": {
+   "color": 2,
+   "tipo_linea": "Continuous",
+   "grosor": 0,
+   "plot": 1
+  },
+  "A-MURO-ACHU": {
+   "color": 252,
+   "tipo_linea": "Continuous",
+   "grosor": 30,
+   "plot": 1
+  },
+  "Proyeccion 1": {
+   "color": 161,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "10. LINEA PROYECCIÓN": {
+   "color": 251,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "12. ESTRUCTURA": {
+   "color": 72,
+   "tipo_linea": "Continuous",
+   "grosor": 20,
+   "plot": 1
+  },
+  "17. SUPERBOARD": {
+   "color": 251,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "DEMOLICIÓN": {
+   "color": 1,
+   "tipo_linea": "Continuous",
+   "grosor": 0,
+   "plot": 1
+  },
+  "7. LINEA CORTE": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 0,
+   "plot": 1
+  },
+  "13. TECHO ESTRUCTURA": {
+   "color": 1,
+   "tipo_linea": "Continuous",
+   "grosor": 20,
+   "plot": 1
+  },
+  "14. TECHO LÁMINA": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 20,
+   "plot": 1
+  },
+  "15. EJES": {
+   "color": 2,
+   "tipo_linea": "Punto&Rayas",
+   "grosor": 35,
+   "plot": 1
+  },
+  "PUERTAS": {
+   "color": 9,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "ESC": {
+   "color": 6,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "Proyeccion": {
+   "color": 220,
+   "tipo_linea": "CONTINUA",
+   "grosor": 5,
+   "plot": 1
+  },
+  "niveles": {
+   "color": 8,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "0.4": {
+   "color": 4,
+   "tipo_linea": "Continuous",
+   "grosor": 40,
+   "plot": 1
+  },
+  "muebles": {
+   "color": 253,
+   "tipo_linea": "Continuous",
+   "grosor": 5,
+   "plot": 1
+  },
+  "Antepecho": {
+   "color": 201,
+   "tipo_linea": "Continuous",
+   "grosor": 20,
+   "plot": 1
+  },
+  "Filos": {
+   "color": 3,
+   "tipo_linea": "Continuous",
+   "grosor": 15,
+   "plot": 1
+  },
+  "Sanitarios": {
+   "color": 6,
+   "tipo_linea": "Continuous",
+   "grosor": 5,
+   "plot": 1
+  },
+  "Mueble Electro": {
+   "color": 122,
+   "tipo_linea": "Continuous",
+   "grosor": 5,
+   "plot": 1
+  },
+  "Zapatas": {
+   "color": 30,
+   "tipo_linea": "Continuous",
+   "grosor": 50,
+   "plot": 1
+  },
+  "TEXTOS 2": {
+   "color": 6,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "T3": {
+   "color": 20,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "MUEB": {
+   "color": 43,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "5_P_VIVIENDA": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 20,
+   "plot": 1
+  },
+  "COTACOL": {
+   "color": 161,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "ADICIONES": {
+   "color": 8,
+   "tipo_linea": "Continuous",
+   "grosor": 5,
+   "plot": 1
+  },
+  "PDF2_Text": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "New_3D MUEBLES_Pen_No__4": {
+   "color": 104,
+   "tipo_linea": "Continuous",
+   "grosor": 13,
+   "plot": 1
+  },
+  "New_3D MUEBLES_Pen_No__86": {
+   "color": 173,
+   "tipo_linea": "Continuous",
+   "grosor": 13,
+   "plot": 1
+  },
+  "ACHU": {
+   "color": 8,
+   "tipo_linea": "Continuous",
+   "grosor": 20,
+   "plot": 1
+  },
+  "muebles fijos": {
+   "color": 2,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "A-DOOR-____-OTLN": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "A-GLAZ-____-OTLN": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "A-GLAZ-____-OTLN-1": {
+   "color": 55,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "Walls": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "_Above_ Riser Lines": {
+   "color": 7,
+   "tipo_linea": "Trazo pequeño",
+   "grosor": 18,
+   "plot": 1
+  },
+  "Elevation Swing": {
+   "color": 7,
+   "tipo_linea": "Dash 1_16_",
+   "grosor": 18,
+   "plot": 1
+  },
+  "S-COLS": {
+   "color": 52,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "A-WALL": {
+   "color": 113,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "A-FLOR": {
+   "color": 192,
+   "tipo_linea": "Continuous",
+   "grosor": 25,
+   "plot": 1
+  },
+  "S-BEAM": {
+   "color": 12,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "A-ROOF": {
+   "color": 132,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "A-GENM": {
+   "color": 13,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "I-FURN": {
+   "color": 30,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "A-GLAZ-CWMG": {
+   "color": 51,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "A-DETL-GENF": {
+   "color": 92,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "G-IMPT": {
+   "color": 8,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "I-FURN-____-OTLN": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "Q-SPCQ-____-OTLN": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "P-SANR-FIXT-OTLN": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "E-ELEC-EQPM-OTLN": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "Furniture": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "Specialty Equipment": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "Electrical Equipment": {
+   "color": 7,
+   "tipo_linea": "Continuous",
+   "grosor": 18,
+   "plot": 1
+  },
+  "MAD": {
+   "color": 55,
+   "tipo_linea": "Continuous",
+   "grosor": 0,
+   "plot": 1
+  },
+  "piso": {
+   "color": 11,
+   "tipo_linea": "Continuous",
+   "grosor": -3,
+   "plot": 1
+  },
+  "A-DH TEXTOS": {
+   "color": 250,
+   "tipo_linea": "Continuous",
+   "grosor": 13,
+   "plot": 1
+  },
+  "LINEA DE EVACUACION": {
+   "color": 80,
+   "tipo_linea": "JIS_02_0.7",
+   "grosor": 30,
+   "plot": 1
+  }
+ }
+}
