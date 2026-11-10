@@ -259,5 +259,16 @@ namespace MCPAutoCAD.GeometryCore.Tests.Clean
             Assert.Equal(n, rondas.Count);
             Assert.Equal(Blk("*U7412"), rondas[n - 1].Single());
         }
+
+        [Fact]
+        public void Capa_mcp_solo_se_libera_si_solo_la_nombra()
+        {
+            Assert.True(PurgeRules.McpLayerReleasedBySolo(PurgeCategories.Capas, "MCP-PRUEBA", new[] { "mcp-prueba" }));
+            Assert.False(PurgeRules.McpLayerReleasedBySolo(PurgeCategories.Capas, "MCP-PRUEBA", null));
+            Assert.False(PurgeRules.McpLayerReleasedBySolo(PurgeCategories.Capas, "MCP-PRUEBA", new[] { "MCP-OTRA" }));
+            Assert.False(PurgeRules.McpLayerReleasedBySolo(PurgeCategories.Capas, "MUROS", new[] { "MUROS" }));
+            Assert.False(PurgeRules.McpLayerReleasedBySolo(PurgeCategories.Bloques, "MCP-PRUEBA", new[] { "MCP-PRUEBA" }));
+            Assert.True(PurgeRules.IsProtected(PurgeCategories.Capas, "MCP-PRUEBA", Ctx, false, null));
+        }
     }
 }

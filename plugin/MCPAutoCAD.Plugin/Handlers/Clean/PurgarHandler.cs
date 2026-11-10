@@ -294,7 +294,10 @@ namespace MCPAutoCAD.Plugin.Handlers.Clean
 
                 // esXref: en bloques IsFromExternalReference/IsDependent; en el resto, dependiente de xref (decisión:
                 // un símbolo de xref nunca se purga, se recarga con la xref).
-                bool fixedProt = s.Dependiente || PurgeRules.IsProtected(s.Categoria, s.Nombre, ctx, s.Xref, null);
+                bool fixedProt = s.Dependiente
+                    || (PurgeRules.IsProtected(s.Categoria, s.Nombre, ctx, s.Xref, null)
+                        && !(PurgeRules.McpLayerReleasedBySolo(s.Categoria, s.Nombre, solo)
+                             && !string.Equals(s.Nombre, ctx.CapaActual, StringComparison.OrdinalIgnoreCase)));
                 bool prot = fixedProt || (excluir != null && PurgeRules.IsProtected(s.Categoria, s.Nombre, ctx, s.Xref, excluir));
                 isProtected[i] = prot;
                 isFixedProtected[i] = fixedProt;

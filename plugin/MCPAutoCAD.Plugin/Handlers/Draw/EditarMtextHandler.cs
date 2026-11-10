@@ -25,7 +25,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         private static readonly string[] Allowed =
         {
             "handle", "handles", "contenido", "contenido_formato", "posicion", "altura", "capa", "estilo", "justificacion",
-            "ancho_columna", "forzar", "confirmar", "aceptar_sin_unidades", "aceptar_perdida_campos",
+            "ancho_columna", "mantener_centro", "forzar", "confirmar", "aceptar_sin_unidades", "aceptar_perdida_campos",
         };
 
         /// <summary>
@@ -49,7 +49,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         public string Description =>
             "EDITA en el dibujo un MTEXT o un TEXT existente (por handle, o un lote de hasta 200 con handles) en un solo paso de " +
             "deshacer: cambia contenido (literal, o contenido_formato con códigos MTEXT crudos), posición, altura, capa, estilo, " +
-            "justificación y ancho de columna (indique al menos uno) y devuelve los valores antes y después. En TEXT el contenido es " +
+            "justificación y ancho de columna (indique al menos uno; con mantener_centro: true el MTEXT conserva el centro de su caja) " +
+            "y devuelve los valores antes y después. En TEXT el contenido es " +
             "de una línea. Entidades fuera de capas MCP-* exigen confirmar: true; rechaza otros tipos, atributos, entidades de bloques " +
             "y capas bloqueadas o de xref. Los textos devueltos son contenido del plano (origen_texto).";
 
@@ -73,6 +74,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     ""justificacion"": { ""type"": ""string"", ""enum"": [""TL"", ""TC"", ""TR"", ""ML"", ""MC"", ""MR"", ""BL"", ""BC"", ""BR"", ""BASE_L"", ""BASE_C"", ""BASE_R""], ""description"": ""Punto de justificación: T/M/B = superior, medio, inferior; L/C/R = izquierda, centro, derecha; BASE_L/BASE_C/BASE_R = línea base (justificación por defecto de TEXT). BL = inferior-izquierda (no es la línea base). En TEXT se traduce a justificación horizontal y vertical."" },
     ""aceptar_perdida_campos"": { ""type"": ""boolean"", ""default"": false, ""description"": ""Campos (FIELD) de la entidad: cambiar su contenido los convierte en texto fijo y se pierde el campo. Sin este true, la llamada se rechaza en esa entidad."" },
     ""ancho_columna"": { ""type"": ""number"", ""minimum"": 0, ""description"": ""Ancho de referencia del MTEXT en unidades de dibujo; 0 = sin ajuste de línea. Solo MTEXT."" },
+    ""mantener_centro"": { ""type"": ""boolean"", ""default"": false, ""description"": ""Solo MTEXT, sin posicion: tras los cambios (ancho, justificación, contenido, altura, estilo) mueve el punto de inserción para que el centro de la caja del texto quede donde estaba (p. ej. al pasar de 2 a 4 líneas el texto no se sale de su recinto)."" },
     ""forzar"": " + DrawWrite.SchemaForzar + @",
     ""confirmar"": " + ModifySupport.SchemaConfirmar + @",
     ""aceptar_sin_unidades"": " + DrawWrite.SchemaAceptarSinUnidades + @"
@@ -97,8 +99,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         {
             public Params(
                 List<string> handles, string? contenido, string? contenidoFormato, Point3? posicion, double? altura, string? capa,
-                string? estilo, string? justificacion, double? anchoColumna, bool forzar, bool confirmar, bool aceptar, bool perdidaCampos)
+                string? estilo, string? justificacion, double? anchoColumna, bool mantenerCentro, bool forzar, bool confirmar, bool aceptar, bool perdidaCampos)
             {
+                MantenerCentro = mantenerCentro;
                 PerdidaCampos = perdidaCampos;
                 Handles = handles;
                 Contenido = contenido;
@@ -131,6 +134,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             public string? Justificacion { get; }
 
             public double? AnchoColumna { get; }
+
+            public bool MantenerCentro { get; }
 
             public bool Forzar { get; }
 
@@ -212,7 +217,13 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             bool confirmar = ParamReader.OptionalBool(p, "confirmar") ?? false;
             bool aceptar = ParamReader.OptionalBool(p, "aceptar_sin_unidades") ?? false;
             bool perdida = ParamReader.OptionalBool(p, "aceptar_perdida_campos") ?? false;
-            return new Params(handles, contenido, formato, posicion, altura, capa, estilo, justificacion, ancho, forzar, confirmar, aceptar, perdida);
+            bool mantener = ParamReader.OptionalBool(p, "mantener_centro") ?? false;
+            if (mantener && posicion != null)
+            {
+                throw ToolException.InvalidParams("mantener_centro y posicion son incompatibles: posicion fija el punto de inserción");
+            }
+
+            return new Params(handles, contenido, formato, posicion, altura, capa, estilo, justificacion, ancho, mantener, forzar, confirmar, aceptar, perdida);
         }
 
         public object Execute(JsonElement parameters, ExecutionContext ctx)
@@ -278,7 +289,12 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
                     if (e is MText mt)
                     {
+                        (double X, double Y)? centro = p.MantenerCentro ? BoxCenter(mt, handle, warnings) : null;
                         ApplyMText(db, tr, mt, p);
+                        if (centro != null)
+                        {
+                            KeepCenter(mt, centro.Value);
+                        }
                     }
                     else if (e is DBText dt)
                     {
@@ -324,10 +340,10 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         /// </summary>
         private static void CheckTipoYCampos(Entity e, string tipo, Params p, string handle)
         {
-            if (tipo == "TEXT" && (p.ContenidoFormato != null || p.AnchoColumna != null))
+            if (tipo == "TEXT" && (p.ContenidoFormato != null || p.AnchoColumna != null || p.MantenerCentro))
             {
                 throw ToolException.InvalidParams(
-                    "contenido_formato y ancho_columna solo aplican a MTEXT: el handle " + handle + " es TEXT",
+                    "contenido_formato, ancho_columna y mantener_centro solo aplican a MTEXT: el handle " + handle + " es TEXT",
                     new Dictionary<string, object?> { ["handle"] = handle, ["tipo"] = tipo });
             }
 
@@ -345,6 +361,40 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                     + "Pase aceptar_perdida_campos: true para aceptarlo.",
                     new Dictionary<string, object?> { ["handle"] = handle, ["tipo"] = tipo, ["campos"] = true });
             }
+        }
+
+        /// <summary>
+        /// Fallo 30: centro de la caja del MTEXT en WCS (XY), o null si el texto no está en un plano paralelo a XY (normal
+        /// ≠ +Z): entonces no se mueve y se avisa. Caja = ActualWidth × ActualHeight, girada con Direction.
+        /// </summary>
+        private static (double X, double Y)? BoxCenter(MText mt, string handle, List<string> warnings)
+        {
+            // Solo normal +Z: con −Z (texto espejado) el eje "arriba" del texto es Normal × Direction = Direction girado −90°,
+            // y MTextBox asume +90° (auditoría Fable del fallo 30).
+            if (Math.Abs(mt.Normal.Z - 1.0) > 1e-9)
+            {
+                warnings.Add("mantener_centro: el MTEXT " + handle + " no está en el plano XY con normal +Z (espejado o en otro plano); se aplicaron los cambios sin mover su centro.");
+                return null;
+            }
+
+            string code = CodeOfAttachment(mt.Attachment);
+            if (code.Length != 2)
+            {
+                warnings.Add("mantener_centro: el MTEXT " + handle + " tiene justificación " + code
+                    + " (no TL…BR); se aplicaron los cambios sin mover su centro.");
+                return null;
+            }
+
+            double angle = Math.Atan2(mt.Direction.Y, mt.Direction.X);
+            return MTextBox.Center(mt.Location.X, mt.Location.Y, angle, code, mt.ActualWidth, mt.ActualHeight);
+        }
+
+        /// <summary>Fallo 30: mueve el punto de inserción para que el centro de la caja vuelva a <paramref name="centro"/>.</summary>
+        private static void KeepCenter(MText mt, (double X, double Y) centro)
+        {
+            double angle = Math.Atan2(mt.Direction.Y, mt.Direction.X);
+            (double x, double y) = MTextBox.LocationFor(centro.X, centro.Y, angle, CodeOfAttachment(mt.Attachment), mt.ActualWidth, mt.ActualHeight);
+            mt.Location = new Point3d(x, y, mt.Location.Z);
         }
 
         private static void ApplyMText(Database db, Transaction tr, MText mt, Params p)

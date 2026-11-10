@@ -51,13 +51,22 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             JsonElement c = p.GetProperty("color");
             if (c.ValueKind == JsonValueKind.String)
             {
-                ColorSpec? word = ColorRules.FromWord(c.GetString() ?? "");
-                if (word == null)
+                string text = c.GetString() ?? "";
+                ColorSpec? word = ColorRules.FromWord(text);
+                if (word != null)
                 {
-                    throw ToolException.InvalidParams(ColorRules.AciRange);
+                    return word;
                 }
 
-                return word;
+                // Fallo 29: con el schema anyOf [integer, string] algunos clientes MCP envían el ACI como texto ("7").
+                // Un entero escrito como texto se acepta igual que el número.
+                if (int.TryParse(text.Trim(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int aci)
+                    && ColorRules.IsAci(aci))
+                {
+                    return ColorRules.FromAci(aci);
+                }
+
+                throw ToolException.InvalidParams(ColorRules.AciRange);
             }
 
             if (c.ValueKind == JsonValueKind.Number && c.TryGetDouble(out double v) && ColorRules.IsAci(v))

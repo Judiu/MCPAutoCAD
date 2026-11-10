@@ -41,7 +41,7 @@ namespace MCPAutoCAD.GeometryCore.Clean
 
         /// <summary>
         /// true si el símbolo <paramref name="nombre"/> de la categoría nunca se purga: capas "0", "DEFPOINTS", la
-        /// actual y las "MCP-*"; tipos de línea "ByLayer", "ByBlock", "Continuous" y el actual; estilos de texto
+        /// actual y las "MCP-*" (salvo las que purgar libera con McpLayerReleasedBySolo); tipos de línea "ByLayer", "ByBlock", "Continuous" y el actual; estilos de texto
         /// "Standard" y el actual; estilos de cota "Standard" y el actual; bloques "*Model_Space", "*Paper_Space*"
         /// (cualquier sufijo) y los de xref (<paramref name="esXref"/>); además cualquier nombre de
         /// <paramref name="excluir"/> (sin distinguir mayúsculas; null = ninguno). Regapps: solo "ACAD" y los de excluir.
@@ -94,6 +94,19 @@ namespace MCPAutoCAD.GeometryCore.Clean
         }
 
         /// <summary>
+        /// Nota de limpieza del 2026-11-10: una capa MCP-* (protegida por defecto) deja de estarlo SOLO si 'solo' la nombra
+        /// explícitamente (sin distinguir mayúsculas). Así, p. ej., una capa de prueba MCP-PRUEBA vacía se purga con
+        /// solo: ["MCP-PRUEBA"]; una purga general nunca toca capas MCP-*. Si la capa tiene uso, sigue sin purgarse.
+        /// </summary>
+        public static bool McpLayerReleasedBySolo(string categoria, string? nombre, IReadOnlyCollection<string>? solo)
+        {
+            return solo != null
+                && Eq(categoria, PurgeCategories.Capas)
+                && (nombre ?? "").StartsWith(McpLayerPrefix, StringComparison.OrdinalIgnoreCase)
+                && InScope(nombre, solo);
+        }
+
+        /// <summary>
         /// Parámetro 'solo' de purgar: true si el símbolo <paramref name="nombre"/> está en el ámbito pedido. Null = sin
         /// 'solo' (todo el ámbito). Comparación sin distinguir mayúsculas. Fuera de ámbito, un símbolo nunca se purga
         /// (se trata como raíz: sus referencias siguen vivas).
@@ -134,7 +147,7 @@ namespace MCPAutoCAD.GeometryCore.Clean
 
             if (protegidoFijo)
             {
-                return "protegido (capa 0/DEFPOINTS/actual, capa MCP-*, estilo o tipo de línea estándar o actual, espacio o xref)";
+                return "protegido (capa 0/DEFPOINTS/actual, capa MCP-* no nombrada en solo, estilo o tipo de línea estándar o actual, espacio o xref)";
             }
 
             if (excluido)

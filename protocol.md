@@ -2770,7 +2770,7 @@ Plugin `0.10.0` (`PluginInfo.PluginVersion`, `.csproj`). `protocol_version` sigu
   - 6 `extender_linea` exigía intersección real → `limite_extendido`, `hasta_punto`.
   - 7 `cota` sin estilo/escala → `cota.estilo`/`escala_global` + `estilo_cota` nuevo.
   - 8 `vista_png` sin extensión WCS real → `bbox_real`, `unidades_por_pixel`, `ajustar_aspecto`; diagnóstico de los tamaños 'User N' en los .pmp.
-  - 9 / 12 sin lote en polilinea/arco/circulo/mtext → `polilineas`, `arcos`, `circulos`, `parrafos`; 12 → `muros_desde_lineas`; error de autointersección con tramos y punto.
+  - 9 / 12 sin lote en polilinea/arco/circulo/mtext → `polilineas`, `arcos`, `circulos`, `mtexts` (desde 0.10.1; `parrafos` sinónimo); 12 → `muros_desde_lineas`; error de autointersección con tramos y punto.
   - 10 `consultar_entidades` sin 'dentro' ni solo handles → `modo_bbox`, `solo_handles`.
   - 13 sin cambiar color/tipo/grosor/transparencia → `cambiar_propiedades` y `color`/`color_rgb` al dibujar.
   - 15 `lisp_permitidos.json` inexistente → solo mensaje de error con formato (decisión del usuario: nunca se crea solo).
@@ -2862,7 +2862,7 @@ Orden en el manifest, tras `configurar_layout`: `cambiar_propiedades`, `reemplaz
 - **`circulo`**: `color`. Batch `circulos` (1–100 `{centro, radio}`).
 - **`arco`**: `color`. Batch `arcos` (1–100 `{centro, radio, angulo_inicio, angulo_fin}`).
 - **`texto`**: `color`. Literal: no interpreta `%%`.
-- **`mtext`**: `color`. Batch `parrafos` (1–100). Literal: conserva los saltos de línea.
+- **`mtext`**: `color`. Batch `mtexts` (1–100; `parrafos` sinónimo desde 0.10.1). Literal: conserva los saltos de línea.
 - **`hatch`**: `color` / `color_rgb`. Patrón por tres vías, excluyentes entre `patron` y `patron_de`:
   - (a) predefinido (`SOLID` o nombre de `acad.pat`/`acadiso.pat`);
   - (b) nombre no predefinido: se busca un HATCH del dibujo que lo use y se clona (p. ej. `FP_1`). Si no hay ninguno, `NOT_FOUND` sin paso de deshacer;
@@ -2928,3 +2928,4 @@ No hay ningún comentario `Suposición` en el código; la lista sale de los come
 - **Fallo 26 (2026-11-10, OPEN fantasma):** OPEN lanzado desde Dibujo2 dejaba "OPEN" en la pila de eventos de Dibujo2 (su fin llega a otro documento) → BUSY permanente y cancelar_comando inútil. Corregido: entradas con serial de documento (sube en DocumentCreated/Activated); `BusyState.ReconcileStale` vacía la pila del documento activo solo si CMDACTIVE = 0 y todas sus entradas son anteriores a un cambio de documento (log Warn). El BUSY registra CMDACTIVE y el comando de eventos; cancelar_comando avisa si CMDACTIVE = 0. Diálogo de OPEN abierto (CMDACTIVE ≠ 0) sigue BUSY.
 - **Fallos 24, 25, 27 (2026-11-10):** la sesión usaba el servidor instalado a las 06:48 (manifest 0.9.0, 77 herramientas): no veía reemplazar_texto (fallo 27 resuelto por ella) ni activar_documento. Pendiente de decisión del usuario: `documento_esperado` (guarda, no cambio de documento) en herramientas de escritura en vez de `documento` en todas; `insertar_imagen` (IMAGEATTACH); `ancho_columna` en editar_mtext. Carpeta desconectada de Claude Desktop: fuera del puente.
 - **Fallo 28 (2026-11-10, ancho de MTEXT):** sin cambio de código: `editar_mtext` 0.10.0 ya tiene `ancho_columna` (0 = sin ajuste), `justificacion`, lote `handles` (1–200, un deshacer) y `contenido_formato` (fallo 27). La sesión usaba el servidor de 77 herramientas. `mantener_centro` no implementado: pendiente de ver en vivo la justificación de los rótulos.
+- **Plugin 0.10.1 (2026-11-10, verificación de las 15:20):** fallo 29: `color` acepta el ACI escrito como texto ("7"), el cliente lo serializaba así por el anyOf [integer, string]; fallo 9: lote de `mtext` = `mtexts` (`parrafos` sinónimo); fallo 30: `editar_mtext mantener_centro` (solo MTEXT con normal +Z, TL…BR; incompatible con `posicion`; caja ActualWidth × ActualHeight girada con Direction, GeometryCore `MTextBox`); `purgar`: una capa MCP-* vacía se purga si `solo` la nombra (nunca la actual). Paquete `dist\puente-0.9.9-prueba` (manifest 0.10.0 hasta que AutoCAD cargue 0.10.1). Pendiente en vivo: que ActualWidth/ActualHeight se recalculen dentro de la transacción (centro conservado).

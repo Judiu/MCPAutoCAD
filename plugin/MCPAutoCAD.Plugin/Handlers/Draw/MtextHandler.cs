@@ -15,7 +15,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     /// mtext (protocol.md §5D.4). Hilo principal; requiere documento; ESCRITURA (un CTRL+Z). MTEXT con
     /// Contents = <see cref="MTextEscape.Escape"/>(texto) (R7: literal; saltos de línea → \P). Attachment según
     /// 'adjunto' (se fija ANTES que Location: el setter de Attachment conserva Location). Estilo inexistente →
-    /// NOT_FOUND antes del UndoGroup. R4: el punto de posición. Forma simple o lote (parrafos: 1 a 100 objetos con
+    /// NOT_FOUND antes del UndoGroup. R4: el punto de posición. Forma simple o lote (mtexts, sinónimo parrafos: 1 a 100 objetos con
     /// las mismas propiedades de un mtext), nunca ambas.
     /// </summary>
     internal sealed class MtextHandler : IToolHandler
@@ -24,7 +24,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         public const int MaxItems = 100;
 
         private static readonly string[] Own = { "posicion", "texto", "altura", "ancho", "rotacion", "adjunto", "estilo" };
-        private static readonly string[] Batch = { "parrafos" };
+        private static readonly string[] Batch = { "mtexts", "parrafos" };
         private static readonly string[] ItemAllowed = { "posicion", "texto", "altura", "ancho", "rotacion", "adjunto", "estilo" };
         private static readonly string[] Allowed = PrimitiveSupport.Concat(
             PrimitiveSupport.Concat(Own, Batch),
@@ -48,7 +48,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
         public string Description =>
             "ESCRIBE en el dibujo: crea un texto de párrafo (MTEXT) en la posición [x, y] (WCS) con altura, ancho de ajuste (0 = sin ajuste), " +
-            "rotación en grados, punto de adjunto, estilo y color opcionales; o varios (parrafos: 1 a 100), en un solo paso de deshacer. " +
+            "rotación en grados, punto de adjunto, estilo y color opcionales; o varios (mtexts: 1 a 100; parrafos es sinónimo), en un solo paso de deshacer. " +
             "El texto es literal (los saltos de línea se conservan; no se interpretan códigos de formato). Capa por defecto MCP-DIBUJO (o el concepto 'textos').";
 
         public bool RequiresDocument => true;
@@ -76,13 +76,14 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
   ""type"": ""object"",
   ""properties"": {
     ""posicion"": " + PrimitiveSupport.PointSchema + @",
-    ""texto"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 2000, ""description"": ""Texto literal; los saltos de línea se convierten en párrafos. Forma simple: no combinar con parrafos."" },
+    ""texto"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 2000, ""description"": ""Texto literal; los saltos de línea se convierten en párrafos. Forma simple: no combinar con mtexts."" },
     ""altura"": { ""type"": ""number"", ""exclusiveMinimum"": 0, ""description"": ""Altura del texto en unidades del dibujo (> 0)."" },
     ""ancho"": { ""type"": ""number"", ""minimum"": 0, ""default"": 0, ""description"": ""Ancho de ajuste de línea en unidades del dibujo (0 = sin ajuste)."" },
     ""rotacion"": " + PrimitiveSupport.AngleSchemaDefault0 + @",
     ""adjunto"": { ""type"": ""string"", ""enum"": [""superior_izquierda"", ""superior_centro"", ""superior_derecha"", ""medio_izquierda"", ""medio_centro"", ""medio_derecha"", ""inferior_izquierda"", ""inferior_centro"", ""inferior_derecha""], ""default"": ""superior_izquierda"", ""description"": ""Qué punto del cuadro de texto coincide con posicion."" },
     ""estilo"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 255, ""description"": ""Nombre de un estilo de texto existente; por defecto el estilo actual."" },
-    ""parrafos"": { ""type"": ""array"", ""minItems"": 1, ""maxItems"": 100, ""items"": " + ItemSchema + @", ""description"": ""Lote: 1 a 100 textos de párrafo con sus propias propiedades; comparten capa, espacio, color y forzar. No combinar con la forma simple. Un solo paso de deshacer; si uno falla, no se crea ninguno."" },
+    ""mtexts"": { ""type"": ""array"", ""minItems"": 1, ""maxItems"": 100, ""items"": " + ItemSchema + @", ""description"": ""Lote: 1 a 100 MTEXT con sus propias propiedades; comparten capa, espacio, color y forzar. No combinar con la forma simple. Un solo paso de deshacer; si uno falla, no se crea ninguno."" },
+    ""parrafos"": { ""type"": ""array"", ""minItems"": 1, ""maxItems"": 100, ""items"": " + ItemSchema + @", ""description"": ""Sinónimo de mtexts (nombre anterior). No combinar con mtexts."" },
     ""capa"": " + DrawWrite.SchemaCapa + @",
     ""espacio"": " + DrawWrite.SchemaEspacio + @",
     ""forzar"": " + DrawWrite.SchemaForzar + @",
@@ -156,33 +157,42 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         private static Params Parse(JsonElement p)
         {
             ParamReader.RequireObject(p, Allowed);
-            bool hasBatch = ParamReader.Has(p, "parrafos");
+            // Fallo 9 (verificación 2026-11-10): el lote se llama mtexts, como polilineas/circulos/arcos; parrafos sigue como sinónimo.
+            bool hasMtexts = ParamReader.Has(p, "mtexts");
+            bool hasParrafos = ParamReader.Has(p, "parrafos");
+            if (hasMtexts && hasParrafos)
+            {
+                throw ToolException.InvalidParams("mtexts y parrafos son el mismo lote: use solo mtexts");
+            }
+
+            bool hasBatch = hasMtexts || hasParrafos;
+            string batchKey = hasMtexts ? "mtexts" : "parrafos";
             bool hasSimple = ParamReader.Has(p, "posicion") || ParamReader.Has(p, "texto") || ParamReader.Has(p, "altura")
                 || ParamReader.Has(p, "ancho") || ParamReader.Has(p, "rotacion") || ParamReader.Has(p, "adjunto") || ParamReader.Has(p, "estilo");
             if (hasBatch && hasSimple)
             {
-                throw ToolException.InvalidParams("parrafos: no se puede combinar con posicion, texto, altura, ancho, rotacion, adjunto o estilo");
+                throw ToolException.InvalidParams(batchKey + ": no se puede combinar con posicion, texto, altura, ancho, rotacion, adjunto o estilo");
             }
 
             var items = new List<Item>();
             if (hasBatch)
             {
-                JsonElement arr = p.GetProperty("parrafos");
+                JsonElement arr = p.GetProperty(batchKey);
                 if (arr.ValueKind != JsonValueKind.Array)
                 {
-                    throw ToolException.InvalidParams("parrafos: debe ser un array de 1 a 100 objetos {posicion, texto, altura, ...}");
+                    throw ToolException.InvalidParams(batchKey + ": debe ser un array de 1 a 100 objetos {posicion, texto, altura, ...}");
                 }
 
                 int n = arr.GetArrayLength();
                 if (n < 1 || n > MaxItems)
                 {
-                    throw ToolException.InvalidParams("parrafos: debe tener entre 1 y 100 elementos");
+                    throw ToolException.InvalidParams(batchKey + ": debe tener entre 1 y 100 elementos");
                 }
 
                 int i = 0;
                 foreach (JsonElement el in arr.EnumerateArray())
                 {
-                    string prefix = "parrafos[" + i.ToString(CultureInfo.InvariantCulture) + "].";
+                    string prefix = batchKey + "[" + i.ToString(CultureInfo.InvariantCulture) + "].";
                     if (el.ValueKind != JsonValueKind.Object)
                     {
                         throw ToolException.InvalidParams(prefix.TrimEnd('.') + ": debe ser un objeto {posicion, texto, altura, ...}");
@@ -237,7 +247,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 boxes.Add(PlacementCheck.PointBox(item.Pos));
             }
 
-            PlacementCheck.Run(db, p.Common.Espacio, boxes, p.Common.Forzar, p.Batch ? "parrafos" : "entidades", warnings);
+            PlacementCheck.Run(db, p.Common.Espacio, boxes, p.Common.Forzar, p.Batch ? "mtexts" : "entidades", warnings);
 
             // Estilos: cada uno debe existir (NOT_FOUND antes del UndoGroup).
             // Un solo chequeo por estilo distinto (un lote suele repetir pocos estilos).
