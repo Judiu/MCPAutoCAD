@@ -90,7 +90,7 @@ Cambiar cualquiera exige recompilar con `scripts/build.ps1` e instalar de nuevo 
 
 ## Gates en vivo
 
-- Fases 0, 1 y 2: aprobados (`../docs/GATE_FASE0.md`, `GATE_FASE1.md`, `GATE_FASE2.md`; resultados en `../PLAN.md` §9).
+- Fases 0, 1 y 2: aprobados (`../docs/GATE_FASE0.md`, `GATE_FASE1.md`, `GATE_FASE2.md`).
 - Fase 3: aprobado (`../docs/GATE_FASE3.md`). Fase 4A: aprobado (`../docs/GATE_FASE4A.md`).
 - Fase L: aprobado con un hallazgo, corregido en 0.6.1 (`../docs/GATE_FASEL.md`).
 - Fase 4B: **pendiente** (`../docs/GATE_FASE4B.md`, sobre `tests/fixtures/fase4b_trabajo.dwg`).
