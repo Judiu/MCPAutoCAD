@@ -18,6 +18,9 @@ namespace MCPAutoCAD.Plugin.Bridge
         /// <summary>Fase 4A (protocol.md §6): la geometría pedida no es construible (inglete imposible, autointersección, área 0…).</summary>
         public const string InvalidGeometry = "INVALID_GEOMETRY";
 
+        /// <summary>Fallo 25 (0.10.1): documento_esperado no es el documento activo; no se ejecutó nada.</summary>
+        public const string WrongDoc = "WRONG_DOC";
+
         public static int Numeric(string code) => code switch
         {
             ParseError => -32700,
@@ -29,6 +32,7 @@ namespace MCPAutoCAD.Plugin.Bridge
             NotFound => -32003,
             UnitsUnknown => -32004,
             InvalidGeometry => -32005,
+            WrongDoc => -32006,
             _ => -32603,
         };
     }

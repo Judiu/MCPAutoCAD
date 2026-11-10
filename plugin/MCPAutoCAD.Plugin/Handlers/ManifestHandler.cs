@@ -48,7 +48,10 @@ namespace MCPAutoCAD.Plugin.Handlers
                     ["description"] = tool.Description,
                     ["escritura"] = tool.IsWrite,
                     ["requiere_documento"] = tool.RequiresDocument,
-                    ["inputSchema"] = tool.InputSchema,
+                    // Fallo 25: el despachador acepta documento_esperado en estas herramientas; se publica en su schema.
+                    ["inputSchema"] = Bridge.DocumentoEsperado.Applies(tool)
+                        ? Bridge.DocumentoEsperado.AugmentSchema(tool.InputSchema)
+                        : tool.InputSchema,
                 };
                 if (tool.OutputSchema.HasValue)
                 {

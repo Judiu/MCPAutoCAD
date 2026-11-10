@@ -29,6 +29,7 @@ RPC_CODE_TO_SYMBOLIC: dict[int, str] = {
     -32003: "NOT_FOUND",
     -32004: "UNITS_UNKNOWN",
     -32005: "INVALID_GEOMETRY",
+    -32006: "WRONG_DOC",
 }
 
 

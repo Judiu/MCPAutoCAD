@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Threading;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Autodesk.AutoCAD.ApplicationServices;
 using MCPAutoCAD.Plugin.Handlers;
@@ -124,22 +125,25 @@ namespace MCPAutoCAD.Plugin.Bridge
                 throw ToolException.MethodNotFound(request.Method);
             }
 
+            // Fallo 25: documento_esperado lo gestiona el despachador; el handler recibe los parámetros sin él.
+            JsonElement parametros = DocumentoEsperado.Strip(handler, request.Params, out string? esperado);
+
             // Validación contra el schema, en el hilo del pipe y ANTES de encolar (protocol.md §4).
-            handler.ValidateParams(request.Params);
+            handler.ValidateParams(parametros);
 
             if (handler.RunsOnPipeThread)
             {
-                return handler.Execute(request.Params, new ToolContext(_pid, null, _busy, 0));
+                return handler.Execute(parametros, new ToolContext(_pid, null, _busy, 0));
             }
 
-            return RunOnMainThread(handler, request);
+            return RunOnMainThread(handler, request, parametros, esperado);
         }
 
         // ------------------------------------------------------------------ hilo del pipe
 
-        private object RunOnMainThread(IToolHandler handler, JsonRpcRequest request)
+        private object RunOnMainThread(IToolHandler handler, JsonRpcRequest request, JsonElement parametros, string? esperado)
         {
-            var job = new MainThreadJob(handler, request.Params);
+            var job = new MainThreadJob(handler, parametros) { DocumentoEsperado = esperado };
             try
             {
                 _invoker.Post(() => ExecuteJob(job));
@@ -222,6 +226,20 @@ namespace MCPAutoCAD.Plugin.Bridge
                         + ", eventos=" + (_busy.CurrentCommand ?? "(ninguno)") + ", herramienta=" + job.Handler.Name + ".");
                     job.Fail(ToolException.BusyCommand(_busy.CurrentCommand ?? ""));
                     return;
+                }
+
+                // Fallo 25: con documento_esperado, el documento activo debe ser ese; si no, nada se ejecuta.
+                if (job.DocumentoEsperado != null && doc != null)
+                {
+                    try
+                    {
+                        DocumentoEsperado.Check(AcApp.DocumentManager, doc, job.DocumentoEsperado);
+                    }
+                    catch (Exception ex)
+                    {
+                        job.Fail(MapException(ex));
+                        return;
+                    }
                 }
 
                 bool anterior = _executing;
@@ -333,6 +351,9 @@ namespace MCPAutoCAD.Plugin.Bridge
             public IToolHandler Handler { get; }
 
             public System.Text.Json.JsonElement Params { get; }
+
+            /// <summary>Fallo 25: documento_esperado de la petición (ya retirado de <see cref="Params"/>), o null.</summary>
+            public string? DocumentoEsperado { get; init; }
 
             public Task<object> Completion => _completion.Task;
 
