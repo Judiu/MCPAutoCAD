@@ -36,11 +36,18 @@ namespace MCPAutoCAD.Plugin.Bridge
         /// LayoutManager (que abre el Layout por su cuenta); el grupo _.UNDO _BE/_E sigue envolviendo todo en un CTRL+Z.
         /// Devuelve el resultado directamente (ruta de aplicación) o un Task&lt;object&gt; (ruta de comando).
         /// </summary>
-        public static object Run(Document doc, Func<Document, object> write)
+        public static object Run(Document doc, Func<Document, object> write) => Run(doc, write, null);
+
+        /// <summary>
+        /// Como <see cref="Run(Document, Func{Document, object})"/>; <paramref name="noEjecutada"/> se llama en el hilo principal
+        /// si el documento activo cambió dentro del contexto de comando y <paramref name="write"/> no llegó a ejecutarse (para
+        /// liberar recursos del llamador, p. ej. la base lateral de importar_geometria).
+        /// </summary>
+        public static object Run(Document doc, Func<Document, object> write, Action? noEjecutada)
         {
             if (UseCommandContextUndo)
             {
-                return RunInCommandContext(doc, write);
+                return RunInCommandContext(doc, write, noEjecutada);
             }
 
             using (doc.LockDocument())
@@ -49,7 +56,19 @@ namespace MCPAutoCAD.Plugin.Bridge
             }
         }
 
-        private static Task<object> RunInCommandContext(Document doc, Func<Document, object> write)
+        private static void InvocarNoEjecutada(Action? noEjecutada)
+        {
+            try
+            {
+                noEjecutada?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                PluginLog.Warn("UndoGroup: limpieza tras una escritura no ejecutada falló (" + ex.Message + ").");
+            }
+        }
+
+        private static Task<object> RunInCommandContext(Document doc, Func<Document, object> write, Action? noEjecutada)
         {
             var tcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             DocumentCollection docs = AcApp.DocumentManager;
@@ -66,9 +85,30 @@ namespace MCPAutoCAD.Plugin.Bridge
                 {
                     try
                     {
+                        if (docs.MdiActiveDocument != doc)
+                        {
+                            // Fallo 36: el usuario cambió de documento entre la comprobación y la ejecución; no se escribe nada.
+                            InvocarNoEjecutada(noEjecutada);
+
+                            tcs.TrySetException(new ToolException(
+                                ErrorCodes.WrongDoc,
+                                "El documento activo cambió antes de escribir: no se escribió nada. Vuelva a activar el documento y repita."));
+                            return Task.CompletedTask;
+                        }
+
                         Editor ed = doc.Editor;
                         // Cadenas FIJAS (protocol.md §3.8): nunca se concatenan datos del cliente.
-                        ed.Command("_.UNDO", "_BE");
+                        try
+                        {
+                            ed.Command("_.UNDO", "_BE");
+                        }
+                        catch
+                        {
+                            // Re-auditoría: la escritura no llega a ejecutarse; el llamador libera sus recursos.
+                            InvocarNoEjecutada(noEjecutada);
+                            throw;
+                        }
+
                         bool written = false;
                         try
                         {

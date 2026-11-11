@@ -36,15 +36,17 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         private const string OrigenTexto = "contenido_del_plano";
         private const string EspacioModelo = SpaceResolver.ModelName;
 
-        private static readonly string[] Allowed = { "ruta", "filtrar_capas", "confirmar", "forzar", "aceptar_sin_unidades" };
+        private static readonly string[] Allowed = { "ruta", "filtrar_capas", "desde", "devolver_handles", "confirmar", "forzar", "aceptar_sin_unidades" };
 
         public string Name => "importar_geometria";
 
         public string Description =>
             "ESCRIBE en el dibujo: importa como entidades nativas del espacio modelo las de un DXF local (LINE, LWPOLYLINE, POLYLINE 2D, "
-            + "CIRCLE, ARC, ELLIPSE, SPLINE, POINT, TEXT, MTEXT, HATCH, SOLID). Sin confirmar:true solo previsualiza y NO escribe nada "
-            + "(conteos por tipo y capa, capas nuevas, extensión, unidades y colocación). Con confirmar:true importa todo en un solo "
-            + "paso de deshacer (CTRL+Z). Bloques, cotas, 3D, xrefs e imágenes se omiten y se cuentan; el DXF no se modifica.";
+            + "CIRCLE, ARC, ELLIPSE, SPLINE, POINT, TEXT, MTEXT, HATCH, SOLID e INSERT con su definición de bloque y atributos). "
+            + "Sin confirmar:true solo previsualiza y NO escribe nada (conteos por tipo y capa, capas y bloques nuevos, extensión, "
+            + "unidades y colocación). Con confirmar:true importa en un solo paso de deshacer (CTRL+Z). Máximo 10000 entidades por "
+            + "llamada: para más, filtrar_capas o páginas con desde. Cotas, 3D, xrefs e imágenes se omiten y se cuentan; el DXF no "
+            + "se modifica. Una llamada cada vez: otra simultánea devuelve BUSY sin escribir.";
 
         public bool RequiresDocument => true;
 
@@ -62,7 +64,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
   ""type"": ""object"",
   ""properties"": {
     ""ruta"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 1000, ""description"": ""Ruta absoluta en una unidad, local o asignada (p. ej. C:\\... o Z:\\...), de un archivo .dxf. No se admiten rutas UNC (\\\\servidor\\...), '..' ni comodines. Máximo 200 MB. Solo se lee: nunca se modifica."" },
-    ""filtrar_capas"": { ""type"": ""array"", ""minItems"": 1, ""maxItems"": 200, ""items"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 255 }, ""description"": ""Nombres de capa del DXF a importar (sin distinguir mayúsculas). Sin este parámetro se importan todas las capas. Máximo 100000 entidades por llamada: para archivos grandes, importe por capas."" },
+    ""filtrar_capas"": { ""type"": ""array"", ""minItems"": 1, ""maxItems"": 200, ""items"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 255 }, ""description"": ""Nombres de capa del DXF a importar (sin distinguir mayúsculas). Sin este parámetro se importan todas las capas. Máximo 10000 entidades por llamada: para archivos grandes, importe por capas o por páginas (desde)."" },
+    ""desde"": { ""type"": ""integer"", ""minimum"": 0, ""description"": ""Paginación para archivos de más de 10000 entidades seleccionadas: índice (0, 10000, 20000…) de la primera entidad a importar, en el orden del espacio modelo del DXF y tras filtrar_capas. Importa hasta 10000 y devuelve siguiente_desde (null en la última página). Haga una llamada después de otra; sin desde, más de 10000 se rechaza."" },
+    ""devolver_handles"": { ""type"": ""boolean"", ""default"": false, ""description"": ""true = con confirmar:true devuelve en 'handles' TODOS los handles creados (en el orden del DXF), no solo la muestra de 50. Respuesta grande: úselo solo si va a editar o borrar esas entidades."" },
     ""confirmar"": { ""type"": ""boolean"", ""default"": false, ""description"": ""false (defecto) = SOLO PREVISUALIZA: no escribe nada, no crea capas ni deshacer. true = importa las entidades al espacio modelo en un solo paso de deshacer."" },
     ""forzar"": " + DrawWrite.SchemaForzar + @",
     ""aceptar_sin_unidades"": " + DrawWrite.SchemaAceptarSinUnidades + @"
@@ -80,7 +84,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     ""archivo"": { ""type"": ""string"" },
     ""espacio"": { ""type"": ""string"" },
     ""n_entidades_archivo"": { ""type"": ""integer"" },
-    ""n"": { ""type"": ""integer"", ""description"": ""Entidades importables que pasan el filtro (preview) o creadas (confirmar)."" },
+    ""n"": { ""type"": ""integer"", ""description"": ""Entidades de esta página (preview) o creadas (confirmar). por_tipo y por_capa describen la selección completa del filtro."" },
     ""por_tipo"": { ""type"": ""object"" },
     ""por_capa"": { ""type"": ""object"" },
     ""creadas"": { ""type"": ""object"", ""description"": ""Solo con confirmar:true: conteo creado por tipo."" },
@@ -94,6 +98,14 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     ""colocacion"": { ""type"": ""object"" },
     ""handles_muestra"": { ""type"": ""array"", ""items"": { ""type"": ""string"" } },
     ""handles_total"": { ""type"": ""integer"" },
+    ""handles"": { ""type"": ""array"", ""items"": { ""type"": ""string"" }, ""description"": ""Solo con devolver_handles:true y confirmar:true: todos los handles creados."" },
+    ""pagina"": { ""type"": ""object"", ""description"": ""desde, cantidad y total de la selección; siguiente_desde = desde de la próxima llamada (null si es la última)."" },
+    ""siguiente_desde"": { ""type"": [""integer"", ""null""] },
+    ""lotes"": { ""type"": ""integer"", ""description"": ""Clonados internos (de hasta 2000 entidades) usados en la escritura."" },
+    ""incompleta"": { ""type"": ""boolean"", ""description"": ""true = no se crearon todas las entidades seleccionadas aun tras reintentar (ver faltantes_por_tipo y advertencias)."" },
+    ""faltantes_por_tipo"": { ""type"": ""object"" },
+    ""bloques_nuevos"": { ""type"": ""array"", ""items"": { ""type"": ""string"" }, ""description"": ""Definiciones de bloque (de los INSERT importados) que no existen en el dibujo."" },
+    ""bloques_existentes"": { ""type"": ""array"", ""items"": { ""type"": ""string"" }, ""description"": ""Bloques que ya existen en el dibujo: se usa la definición del dibujo, no la del DXF."" },
     ""insunits"": { ""type"": ""integer"" },
     ""unidades"": { ""type"": ""string"" },
     ""insunits_archivo"": { ""type"": ""integer"" },
@@ -111,8 +123,10 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         /// <summary>Parámetros ya validados (sin tocar AutoCAD).</summary>
         private sealed class ImportParams
         {
-            public ImportParams(string ruta, HashSet<string>? filtro, bool confirmar, bool forzar, bool aceptarSinUnidades)
+            public ImportParams(string ruta, HashSet<string>? filtro, bool confirmar, bool forzar, bool aceptarSinUnidades, int? desde, bool devolverHandles)
             {
+                Desde = desde;
+                DevolverHandles = devolverHandles;
                 Ruta = ruta;
                 Filtro = filtro;
                 Confirmar = confirmar;
@@ -128,6 +142,11 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             public bool Confirmar { get; }
             public bool Forzar { get; }
             public bool AceptarSinUnidades { get; }
+
+            /// <summary>null = sin paginar (más de MaxEntities se rechaza).</summary>
+            public int? Desde { get; }
+
+            public bool DevolverHandles { get; }
         }
 
         private static ImportParams Parse(JsonElement p)
@@ -150,7 +169,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             bool confirmar = ParamReader.OptionalBool(p, "confirmar") ?? false;
             bool forzar = ParamReader.OptionalBool(p, "forzar") ?? false;
             bool aceptar = ParamReader.OptionalBool(p, "aceptar_sin_unidades") ?? false;
-            return new ImportParams(ruta, filtro, confirmar, forzar, aceptar);
+            int? desde = ParamReader.OptionalInt(p, "desde", 0, int.MaxValue);
+            bool devolver = ParamReader.OptionalBool(p, "devolver_handles") ?? false;
+            return new ImportParams(ruta, filtro, confirmar, forzar, aceptar, desde, devolver);
         }
 
         public object Execute(JsonElement parameters, ExecutionContext ctx)
@@ -214,7 +235,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                     {
                         DisposeSide(side);   // Dispose SIEMPRE; la base lateral nunca se guarda.
                     }
-                });
+                }, () => DisposeSide(side));   // re-auditoría: también si la escritura no llega a ejecutarse
                 pendiente = resultado is Task { IsCompleted: false };
                 return resultado;
             }
@@ -278,11 +299,37 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             return side;
         }
 
-        /// <summary>Un DXF que AutoCAD no puede leer es un error del archivo que pasa el cliente: INVALID_PARAMS, no INTERNAL.</summary>
-        private static ToolException ReadFailed(string ruta, string detalle, string registro) =>
-            ToolException.InvalidParams(
-                "No se pudo leer el DXF '" + Path.GetFileName(ruta) + "': no parece un DXF válido o está dañado.",
-                new Dictionary<string, object?> { ["detalle"] = detalle, ["archivo"] = ruta, ["registro"] = registro });
+        /// <summary>
+        /// Un DXF que AutoCAD no puede leer es un error del archivo que pasa el cliente: INVALID_PARAMS, no INTERNAL. Fallo 41:
+        /// si el DXF tiene nombres de capa no válidos ('|', '&lt;'…), el mensaje los nombra.
+        /// </summary>
+        private static ToolException ReadFailed(string ruta, string detalle, string registro)
+        {
+            var datos = new Dictionary<string, object?> { ["detalle"] = detalle, ["archivo"] = ruta, ["registro"] = registro };
+            List<(string Nombre, char Caracter)> invalidas = BuscarCapasInvalidas(ruta);
+            if (invalidas.Count > 0)
+            {
+                datos["capas_invalidas"] = invalidas.Select(c => c.Nombre).ToList();
+                return ToolException.InvalidParams(ImportRules.MensajeCapasInvalidas(Path.GetFileName(ruta), invalidas), datos);
+            }
+
+            return ToolException.InvalidParams(
+                "No se pudo leer el DXF '" + Path.GetFileName(ruta) + "': no parece un DXF válido o está dañado.", datos);
+        }
+
+        /// <summary>Lee el DXF como texto (solo tras un fallo de DxfIn) buscando nombres de capa no válidos. Best effort.</summary>
+        private static List<(string Nombre, char Caracter)> BuscarCapasInvalidas(string ruta)
+        {
+            try
+            {
+                return ImportRules.CapasInvalidasEnDxf(File.ReadLines(ruta));
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is OutOfMemoryException)
+            {
+                PluginLog.Warn("importar_geometria: no se pudo revisar los nombres de capa del DXF (" + ex.Message + ").");
+                return new List<(string, char)>();
+            }
+        }
 
         /// <summary>Borra los registros de DxfIn (importar_*.log) de más de un día que quedaron de sesiones anteriores. Best effort.</summary>
         private static void PurgarRegistrosViejos(string carpeta)
@@ -345,6 +392,15 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             public string Tipo { get; }
             public string Capa { get; }
 
+            /// <summary>Handle en el DXF (para informar de una entidad que no se creó).</summary>
+            public string Handle { get; set; } = "";
+
+            /// <summary>Caja 2D (solo entidades seleccionadas; null si no tiene extensión).</summary>
+            public BBox2? Caja { get; set; }
+
+            /// <summary>INSERT: nombre de la definición (la dinámica, si lo es); null en el resto.</summary>
+            public string? Bloque { get; set; }
+
             /// <summary>Normal distinta de +Z o cota Z distinta de cero (solo entidades seleccionadas).</summary>
             public bool FueraDePlano { get; set; }
         }
@@ -370,6 +426,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         private static Escaneo Scan(Database side, IReadOnlySet<string>? filtro)
         {
             var esc = new Escaneo();
+            var memoXref = new Dictionary<ObjectId, bool>();
             using (Transaction tr = side.TransactionManager.StartOpenCloseTransaction())
             {
                 var bt = (BlockTable)tr.GetObject(side.BlockTableId, OpenMode.ForRead);
@@ -387,11 +444,35 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                     }
 
                     string tipo = TipoDe(e);
+                    string? bloque = null;
+                    if (e is BlockReference br)
+                    {
+                        // Fallo 42: un INSERT se importa con su definición; el de un xref no (se cuenta como XREF omitido).
+                        ObjectId defId = br.IsDynamicBlock ? br.DynamicBlockTableRecord : br.BlockTableRecord;
+                        if (defId.IsNull)
+                        {
+                            tipo = "INSERT_SIN_DEFINICION";   // INSERT dañado: se omite y se cuenta
+                        }
+                        else if (tr.GetObject(defId, OpenMode.ForRead) is BlockTableRecord def)
+                        {
+                            if (def.IsFromExternalReference || def.IsFromOverlayReference || def.IsDependent
+                                || ContieneXref(tr, def.ObjectId, memoXref, new HashSet<ObjectId>()))
+                            {
+                                tipo = "XREF";   // también un bloque con un xref anidado: el clonado traería la referencia
+                            }
+                            else
+                            {
+                                bloque = def.Name;
+                            }
+                        }
+                    }
+
                     string capa = e.Layer;
-                    var elemento = new Elemento(id, tipo, capa);
+                    var elemento = new Elemento(id, tipo, capa) { Bloque = bloque };
                     esc.Todos.Add(elemento);
                     if (ImportRules.Selecciona(tipo, capa, filtro))
                     {
+                        elemento.Handle = AcadUtil.HandleToString(id.Handle);
                         elemento.FueraDePlano = FueraDePlanoXY(e);
                         if (e is Hatch h && h.Associative)
                         {
@@ -399,6 +480,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                         }
 
                         BBox2? caja = AcadUtil.TryBBox2(e);
+                        elemento.Caja = caja;
                         if (caja != null)
                         {
                             esc.Caja = esc.Caja == null ? caja : esc.Caja.Value.Union(caja.Value);
@@ -441,6 +523,47 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             return esc;
         }
 
+        /// <summary>true si la definición contiene (a cualquier profundidad) un INSERT de un xref. Solo lectura.</summary>
+        private static readonly Autodesk.AutoCAD.Runtime.RXClass ClaseInsert =
+            Autodesk.AutoCAD.Runtime.RXObject.GetClass(typeof(BlockReference));
+
+        private static bool ContieneXref(Transaction tr, ObjectId defId, Dictionary<ObjectId, bool> memo, HashSet<ObjectId> vistos)
+        {
+            if (memo.TryGetValue(defId, out bool ya))
+            {
+                return ya;
+            }
+
+            if (defId.IsNull || !vistos.Add(defId) || !(tr.GetObject(defId, OpenMode.ForRead) is BlockTableRecord def))
+            {
+                return false;   // ciclo o no legible: no se memoriza (el ciclo se resuelve en la llamada que lo abrió)
+            }
+
+            bool res = false;
+            foreach (ObjectId id in def)
+            {
+                Autodesk.AutoCAD.Runtime.RXClass? clase = id.ObjectClass;
+                if (clase == null || !clase.IsDerivedFrom(ClaseInsert))
+                {
+                    continue;
+                }
+
+                if (tr.GetObject(id, OpenMode.ForRead, false) is BlockReference br)
+                {
+                    ObjectId hijo = br.IsDynamicBlock ? br.DynamicBlockTableRecord : br.BlockTableRecord;
+                    if (!hijo.IsNull && tr.GetObject(hijo, OpenMode.ForRead) is BlockTableRecord h
+                        && (h.IsFromExternalReference || h.IsFromOverlayReference || h.IsDependent || ContieneXref(tr, hijo, memo, vistos)))
+                    {
+                        res = true;
+                        break;
+                    }
+                }
+            }
+
+            memo[defId] = res;
+            return res;
+        }
+
         /// <summary>true si la entidad no está en el plano XY con cota cero: normal distinta de +Z o Z distinta de 0 (solo aviso).</summary>
         private static bool FueraDePlanoXY(Entity e)
         {
@@ -478,6 +601,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 case MText m: return m.Normal;
                 case DBPoint d: return d.Normal;
                 case Line l: return l.Normal;
+                case BlockReference b: return b.Normal;
                 default: return null;
             }
         }
@@ -595,6 +719,18 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
             /// <summary>HATCH asociativos cuyo contorno no entra en la importación (ids del archivo): se importan no asociativos.</summary>
             public HashSet<ObjectId> HatchSinAsociar { get; set; } = new HashSet<ObjectId>();
+
+            /// <summary>Página de la selección que se importa (la selección completa sin desde).</summary>
+            public ImportRules.Pagina Pagina { get; set; } = new ImportRules.Pagina(0, 0, null);
+
+            /// <summary>Total seleccionado por el filtro (antes de paginar).</summary>
+            public int TotalSeleccion { get; set; }
+
+            /// <summary>Grupos de índices de <see cref="Seleccion"/> que deben clonarse en el mismo lote (HATCH asociativo + contorno).</summary>
+            public List<IReadOnlyCollection<int>> Grupos { get; set; } = new List<IReadOnlyCollection<int>>();
+
+            public List<string> BloquesNuevos { get; set; } = new List<string>();
+            public List<string> BloquesExistentes { get; set; } = new List<string>();
         }
 
         /// <summary>Añade el aviso si lo hay (null = nada que avisar).</summary>
@@ -618,15 +754,24 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
             var entidades = esc.Todos.Select(t => new ImportRules.EntidadArchivo(t.Tipo, t.Capa));
             ImportRules.ImportPlan plan = ImportRules.Plan(entidades, p.Filtro, nombresDestino);
-            if (plan.Excede)
+            ImportRules.Pagina? pagina = ImportRules.Paginar(plan.Seleccionadas, p.Desde, out string? errorPagina);
+            if (pagina == null && !p.Confirmar && p.Desde == null && plan.Seleccionadas > ImportRules.MaxEntities)
+            {
+                // Auditoría: la previsualización sin desde no falla por el tope; describe la primera página y dice cómo seguir.
+                pagina = ImportRules.Paginar(plan.Seleccionadas, 0, out errorPagina);
+                advertencias.Add(ImportRules.TooManyEntities(plan.Seleccionadas) + " (esta previsualización describe la primera página).");
+            }
+
+            if (pagina == null)
             {
                 throw ToolException.InvalidParams(
-                    ImportRules.TooManyEntities(plan.Seleccionadas),
+                    errorPagina ?? "desde: no válido",
                     new Dictionary<string, object?>
                     {
                         ["entidades"] = plan.Seleccionadas,
                         ["maximo"] = ImportRules.MaxEntities,
-                        ["sugerencia"] = "filtrar_capas",
+                        ["sugerencia"] = "filtrar_capas o desde",
+                        ["por_capa"] = Ordenado(plan.PorCapa),
                     });
             }
 
@@ -651,12 +796,23 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 advertencias.Add(unidades.Mensaje);
             }
 
+            var capasPagina = new HashSet<string>(
+                esc.Todos.Where(t => ImportRules.Selecciona(t.Tipo, t.Capa, p.Filtro)).Skip(pagina.Inicio).Take(pagina.Cantidad).Select(t => t.Capa),
+                StringComparer.OrdinalIgnoreCase);
             var bloqueadas = new List<(string Nombre, string Motivo)>();
-            foreach (string capa in plan.CapasExistentes)
+            foreach (string capa in plan.CapasExistentes.Where(c => capasPagina.Contains(c)))
             {
                 EstadoCapa ec = destino[capa];
                 string? motivo = ImportRules.LayerBlockReason(ec.Bloqueada, ec.Congelada, ec.Xref);
-                if (motivo != null)
+                EstadoCapa? enDxf = esc.Estados.TryGetValue(capa, out EstadoCapa? x) ? x : null;
+                if (motivo != null && pagina.Inicio > 0 && !ec.Xref && enDxf != null && enDxf.Bloqueada == ec.Bloqueada
+                    && enDxf.Congelada == ec.Congelada)
+                {
+                    // Auditoría (páginas): la capa tiene en el dibujo el mismo estado que en el DXF, típicamente porque la creó una
+                    // página anterior de esta importación. Se escribe igual (la base de datos lo admite) y se avisa.
+                    advertencias.Add("capa '" + capa + "' (" + motivo + ") tiene en el dibujo el mismo estado que en el DXF: se importa en ella igual.");
+                }
+                else if (motivo != null)
                 {
                     bloqueadas.Add((capa, motivo));
                 }
@@ -678,11 +834,21 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 advertencias.Add("filtrar_capas: la capa '" + capa + "' no existe en el DXF.");
             }
 
-            var seleccion = esc.Todos.Where(t => ImportRules.Selecciona(t.Tipo, t.Capa, p.Filtro)).ToList();
+            var seleccion = esc.Todos.Where(t => ImportRules.Selecciona(t.Tipo, t.Capa, p.Filtro))
+                .Skip(pagina.Inicio).Take(pagina.Cantidad).ToList();
             var cajas = new List<BBox2>();
-            if (esc.Caja != null)
+            BBox2? cajaPagina = null;
+            foreach (Elemento el in seleccion)
             {
-                cajas.Add(esc.Caja.Value);
+                if (el.Caja != null)
+                {
+                    cajaPagina = cajaPagina == null ? el.Caja : cajaPagina.Value.Union(el.Caja.Value);
+                }
+            }
+
+            if (cajaPagina != null)
+            {
+                cajas.Add(cajaPagina.Value);
             }
             else if (seleccion.Count > 0)
             {
@@ -698,24 +864,59 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             }).ToList();
             AddSi(advertencias, ImportRules.AvisoCapasNuevasConEstado(estadosNuevas));
 
-            // Con DuplicateRecordCloning.Ignore el dibujo conserva su definición de estilos y tipos de línea homónimos.
-            AddSi(advertencias, ImportRules.AvisoDefinicionesExistentes(
-                "estilos de texto", NombresDeTabla(side, side.TextStyleTableId), NombresDeTabla(db, db.TextStyleTableId)));
-            AddSi(advertencias, ImportRules.AvisoDefinicionesExistentes(
-                "tipos de línea", NombresDeTabla(side, side.LinetypeTableId), NombresDeTabla(db, db.LinetypeTableId)));
+            // Con DuplicateRecordCloning.Ignore el dibujo conserva su definición de estilos y tipos de línea homónimos. A partir
+            // de la segunda página, lo que creó la primera "ya existe": no se avisa (sería falso).
+            bool primeraPagina = pagina.Inicio == 0;
+            if (primeraPagina)
+            {
+                AddSi(advertencias, ImportRules.AvisoDefinicionesExistentes(
+                    "estilos de texto", NombresDeTabla(side, side.TextStyleTableId), NombresDeTabla(db, db.TextStyleTableId)));
+                AddSi(advertencias, ImportRules.AvisoDefinicionesExistentes(
+                    "tipos de línea", NombresDeTabla(side, side.LinetypeTableId), NombresDeTabla(db, db.LinetypeTableId)));
+            }
 
-            int hatches = plan.PorTipo.TryGetValue("HATCH", out int nHatch) ? nHatch : 0;
+            int hatches = seleccion.Count(s => s.Tipo == "HATCH");
             AddSi(advertencias, ImportRules.AvisoOrdenDeDibujoHatch(hatches));
 
-            // Un HATCH asociativo cuyo contorno no entra en la importación se importará no asociativo.
-            var idsSeleccion = new HashSet<ObjectId>(seleccion.Select(s => s.Id));
+            // Fallo 42: bloques de los INSERT. Con DuplicateRecordCloning.Ignore el dibujo conserva su definición homónima.
+            // Los anónimos (*U…, *D…) siempre llegan como bloques nuevos (AutoCAD los renombra).
+            HashSet<string> bloquesDibujo = new HashSet<string>(NombresDeTabla(db, db.BlockTableId), StringComparer.OrdinalIgnoreCase);
+            var bloquesUsados = seleccion.Where(s => s.Bloque != null && !s.Bloque.StartsWith("*", StringComparison.Ordinal))
+                .Select(s => s.Bloque!).Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(b => b, StringComparer.OrdinalIgnoreCase).ToList();
+            var bloquesExistentes = bloquesUsados.Where(b => bloquesDibujo.Contains(b)).ToList();
+            var bloquesNuevos = bloquesUsados.Where(b => !bloquesDibujo.Contains(b)).ToList();
+            if (primeraPagina)
+            {
+                AddSi(advertencias, ImportRules.AvisoDefinicionesExistentes("bloques", bloquesExistentes, bloquesDibujo));
+            }
+
+            // Un HATCH asociativo cuyo contorno no entra en la importación (o en esta página) se importará no asociativo; el
+            // que sí lo tiene va en el mismo lote que su contorno.
+            var indice = new Dictionary<ObjectId, int>();
+            for (int i = 0; i < seleccion.Count; i++)
+            {
+                indice[seleccion[i].Id] = i;
+            }
+
             var sinAsociar = new HashSet<ObjectId>();
+            var grupos = new List<IReadOnlyCollection<int>>();
             foreach (KeyValuePair<ObjectId, (bool Completo, List<ObjectId> Contorno)> kv in esc.Asociativos)
             {
-                if (!kv.Value.Completo || kv.Value.Contorno.Any(c => !idsSeleccion.Contains(c)))
+                if (!indice.TryGetValue(kv.Key, out int iHatch))
+                {
+                    continue;   // fuera de esta página
+                }
+
+                if (!kv.Value.Completo || kv.Value.Contorno.Any(c => !indice.ContainsKey(c)))
                 {
                     sinAsociar.Add(kv.Key);
+                    continue;
                 }
+
+                var grupo = new List<int> { iHatch };
+                grupo.AddRange(kv.Value.Contorno.Select(c => indice[c]));
+                grupos.Add(grupo);
             }
 
             return new Preparacion
@@ -729,6 +930,11 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 Unidades = unidades,
                 UnidadesCompatibles = unidadesCompatibles,
                 HatchSinAsociar = sinAsociar,
+                Pagina = pagina,
+                TotalSeleccion = plan.Seleccionadas,
+                Grupos = grupos,
+                BloquesNuevos = bloquesNuevos,
+                BloquesExistentes = bloquesExistentes,
             };
         }
 
@@ -774,7 +980,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             }).ToList();
 
             var res = Base(p, pid, false, prep, advertencias);
-            res["n"] = plan.Seleccionadas;
+            res["n"] = prep.Seleccion.Count;
             res["por_tipo"] = Ordenado(plan.PorTipo);
             res["por_capa"] = Ordenado(plan.PorCapa);
             res["omitidas"] = Ordenado(plan.Omitidas);
@@ -785,6 +991,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             res["colocacion"] = colocacion;
             res["handles_muestra"] = new List<string>();
             res["handles_total"] = 0;
+            res["bloques_nuevos"] = prep.BloquesNuevos;
+            res["bloques_existentes"] = prep.BloquesExistentes;
             return res;
         }
 
@@ -807,6 +1015,14 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 ["origen_texto"] = OrigenTexto,
                 ["n_papel_ignoradas"] = prep.Escaneo.PapelIgnoradas,
                 ["unidades_compatibles"] = prep.UnidadesCompatibles,
+                ["pagina"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["desde"] = prep.Pagina.Inicio,
+                    ["cantidad"] = prep.Pagina.Cantidad,
+                    ["total"] = prep.TotalSeleccion,
+                    ["siguiente_desde"] = prep.Pagina.Siguiente,
+                },
+                ["siguiente_desde"] = prep.Pagina.Siguiente,
                 ["advertencias"] = advertencias,
             };
         }
@@ -861,39 +1077,55 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 ro.Commit();
             }
 
-            var ids = new ObjectIdCollection();
-            var seleccionados = new HashSet<ObjectId>();
-            foreach (Elemento el in prep.Seleccion)
-            {
-                ids.Add(el.Id);
-                seleccionados.Add(el.Id);
-            }
-
-            using var mapa = new IdMapping();
-            try
-            {
-                side.WblockCloneObjects(ids, espacioId, mapa, DuplicateRecordCloning.Ignore, false);
-            }
-            catch (AcRuntimeException ex)
-            {
-                throw new ToolException(
-                    ErrorCodes.Internal,
-                    "No se pudo importar el DXF: " + Path.GetFileName(p.Ruta) + ".",
-                    new Dictionary<string, object?>
-                    {
-                        ["detalle"] = "WblockCloneObjects: " + ex.ErrorStatus + ": " + ex.Message,
-                        ["archivo"] = p.Ruta,
-                        ["aviso"] = "se intentó revertir la importación con el deshacer del paso (solo funciona con UNDOCTL completo); compruebe con consultar_entidades antes de reintentar. No use CTRL+Z.",
-                    });
-            }
-
+            // Fallo 38: lotes de hasta BatchSize entidades (un WblockCloneObjects por lote), todos dentro del mismo paso de
+            // deshacer. Un HATCH asociativo y su contorno van en el mismo lote para conservar la asociación.
+            List<List<int>> lotes = ImportRules.Lotes(prep.Seleccion.Count, prep.Grupos, ImportRules.BatchSize);
             var clonados = new Dictionary<ObjectId, ObjectId>();
-            foreach (IdPair par in mapa)
+            int enModeloAntes = ContarEnModelo(db, espacioId);
+            for (int k = 0; k < lotes.Count; k++)
             {
-                if (par.IsCloned && seleccionados.Contains(par.Key) && !par.Value.IsNull)
+                Clonar(side, espacioId, lotes[k].Select(i => prep.Seleccion[i].Id), clonados, p, k + 1, lotes.Count);
+            }
+
+            // Fallo 36: lo que no se clonó sin excepción se reintenta una vez (en un lote aparte) antes de informar.
+            // Solo si el espacio modelo creció exactamente lo que dice el mapa de clonado: si creció más, el mapa no las vio
+            // y reintentar las duplicaría.
+            var faltan = prep.Seleccion.Where(el => !clonados.ContainsKey(el.Id)).ToList();
+            int crecimiento = faltan.Count > 0 ? ContarEnModelo(db, espacioId) - enModeloAntes : clonados.Count;
+            bool reintentado = false;
+            if (faltan.Count > 0 && crecimiento != clonados.Count)
+            {
+                PluginLog.Warn("importar_geometria: faltan " + faltan.Count + " entidades pero el modelo creció " + crecimiento
+                    + " y el mapa registra " + clonados.Count + "; no se reintenta para no duplicar.");
+                advertencias.Add("importar_geometria: el espacio modelo cambió en " + crecimiento + " entidades y el clonado registró "
+                    + clonados.Count + ": el resultado no es fiable (n y handles pueden no cuadrar). Deshaga con un CTRL+Z en AutoCAD y repita.");
+            }
+            else if (faltan.Count > 0)
+            {
+                PluginLog.Warn("importar_geometria: " + faltan.Count + " de " + prep.Seleccion.Count
+                    + " entidades no se clonaron sin excepción; se reintenta una vez (primera: " + faltan[0].Tipo + " " + faltan[0].Handle + ").");
+                foreach (List<int> lote in ImportRules.Lotes(faltan.Count, null, ImportRules.BatchSize))
                 {
-                    clonados[par.Key] = par.Value;
+                    Clonar(side, espacioId, lote.Select(i => faltan[i].Id), clonados, p, 0, 0);
                 }
+
+                // Un HATCH asociativo reintentado, o cuyo contorno se reintentó, quedó clonado en otra llamada que su contorno
+                // (ids colgantes): se desasocia.
+                var idsFaltan = new HashSet<ObjectId>(faltan.Select(f => f.Id));
+                foreach (IReadOnlyCollection<int> grupo in prep.Grupos)
+                {
+                    if (grupo.Any(i => idsFaltan.Contains(prep.Seleccion[i].Id)))
+                    {
+                        prep.HatchSinAsociar.Add(prep.Seleccion[grupo.First()].Id);   // el primero del grupo es el HATCH
+                    }
+                }
+
+                foreach (Elemento el in faltan.Where(f => prep.Escaneo.Asociativos.ContainsKey(f.Id)))
+                {
+                    prep.HatchSinAsociar.Add(el.Id);
+                }
+
+                reintentado = true;
             }
 
             // A4: los HATCH cuyo contorno no se importó quedan no asociativos (relleno fijo), en el mismo paso de deshacer.
@@ -939,26 +1171,42 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             AddSi(advertencias, ImportRules.AvisoHatchNoAsociativos(noAsociativos));
 
             var handles = new List<string>();
+            var todos = new List<string>();
             var creadasPorTipo = new Dictionary<string, int>(StringComparer.Ordinal);
+            var faltantesPorTipo = new Dictionary<string, int>(StringComparer.Ordinal);
+            Elemento? primeraFaltante = null;
             int n = 0;
             foreach (Elemento el in prep.Seleccion)
             {
                 if (!clonados.TryGetValue(el.Id, out ObjectId nuevo))
                 {
+                    faltantesPorTipo[el.Tipo] = faltantesPorTipo.TryGetValue(el.Tipo, out int f) ? f + 1 : 1;
+                    primeraFaltante ??= el;
                     continue;
                 }
 
                 n++;
                 creadasPorTipo[el.Tipo] = creadasPorTipo.TryGetValue(el.Tipo, out int c) ? c + 1 : 1;
+                string h = AcadUtil.HandleToString(nuevo.Handle);
                 if (handles.Count < ImportRules.MaxSampleHandles)
                 {
-                    handles.Add(AcadUtil.HandleToString(nuevo.Handle));
+                    handles.Add(h);
+                }
+
+                if (p.DevolverHandles)
+                {
+                    todos.Add(h);
                 }
             }
 
-            if (n != prep.Seleccion.Count)
+            bool incompleta = primeraFaltante != null;
+            if (primeraFaltante != null)
             {
-                advertencias.Add("importación incompleta: se crearon " + n + " de " + prep.Seleccion.Count + " entidades seleccionadas.");
+                string aviso = ImportRules.AvisoIncompleta(
+                    n, prep.Seleccion.Count, faltantesPorTipo, primeraFaltante.Tipo, primeraFaltante.Capa, primeraFaltante.Handle,
+                    reintentado, p.Desde);
+                PluginLog.Warn("importar_geometria: " + aviso);
+                advertencias.Insert(0, aviso);
             }
 
             HashSet<string> capasDespues = LeerNombresCapas(db);
@@ -975,7 +1223,100 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             res["capas_existentes"] = prep.Plan.CapasExistentes;
             res["handles_muestra"] = handles;
             res["handles_total"] = n;
+            if (p.DevolverHandles)
+            {
+                res["handles"] = todos;
+            }
+
+            res["lotes"] = lotes.Count;
+            res["incompleta"] = incompleta;
+            if (incompleta)
+            {
+                // No invitar a pasar a la página siguiente con esta incompleta.
+                res["siguiente_desde"] = null;
+                if (res["pagina"] is Dictionary<string, object?> pag)
+                {
+                    pag["siguiente_desde"] = null;
+                }
+            }
+            if (incompleta)
+            {
+                res["faltantes_por_tipo"] = Ordenado(faltantesPorTipo);
+            }
+
+            res["bloques_nuevos"] = prep.BloquesNuevos;
+            res["bloques_existentes"] = prep.BloquesExistentes;
             return res;
+        }
+
+        /// <summary>Entidades no borradas del espacio modelo (sin abrirlas).</summary>
+        private static int ContarEnModelo(Database db, ObjectId espacioId)
+        {
+            int n = 0;
+            using (Transaction ro = db.TransactionManager.StartOpenCloseTransaction())
+            {
+                var modelo = (BlockTableRecord)ro.GetObject(espacioId, OpenMode.ForRead);
+                foreach (ObjectId id in modelo)
+                {
+                    if (!id.IsErased)
+                    {
+                        n++;
+                    }
+                }
+
+                ro.Commit();
+            }
+
+            return n;
+        }
+
+        /// <summary>
+        /// Un WblockCloneObjects de un lote al espacio modelo del dibujo (sin transacción abierta en el dibujo, como
+        /// Database.Insert en insertar_export) y anota en <paramref name="clonados"/> origen → copia. Una excepción corta toda
+        /// la importación: UndoGroup revierte lo escrito. <paramref name="lote"/> 0 = reintento.
+        /// </summary>
+        private static void Clonar(
+            Database side, ObjectId espacioId, IEnumerable<ObjectId> origenes, Dictionary<ObjectId, ObjectId> clonados, ImportParams p, int lote, int lotes)
+        {
+            var ids = new ObjectIdCollection();
+            var seleccionados = new HashSet<ObjectId>();
+            foreach (ObjectId id in origenes)
+            {
+                ids.Add(id);
+                seleccionados.Add(id);
+            }
+
+            if (ids.Count == 0)
+            {
+                return;
+            }
+
+            using var mapa = new IdMapping();
+            try
+            {
+                side.WblockCloneObjects(ids, espacioId, mapa, DuplicateRecordCloning.Ignore, false);
+            }
+            catch (AcRuntimeException ex)
+            {
+                string cual = lote == 0 ? "reintento" : "lote " + lote + " de " + lotes;
+                throw new ToolException(
+                    ErrorCodes.Internal,
+                    "No se pudo importar el DXF: " + Path.GetFileName(p.Ruta) + " (" + cual + ").",
+                    new Dictionary<string, object?>
+                    {
+                        ["detalle"] = "WblockCloneObjects (" + cual + "): " + ex.ErrorStatus + ": " + ex.Message,
+                        ["archivo"] = p.Ruta,
+                        ["aviso"] = "se intentó revertir la importación con el deshacer del paso (solo funciona con UNDOCTL completo); compruebe con consultar_entidades antes de reintentar. No use CTRL+Z.",
+                    });
+            }
+
+            foreach (IdPair par in mapa)
+            {
+                if (par.IsCloned && seleccionados.Contains(par.Key) && !par.Value.IsNull)
+                {
+                    clonados[par.Key] = par.Value;
+                }
+            }
         }
     }
 }

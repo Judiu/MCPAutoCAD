@@ -28,6 +28,7 @@ dist/
 
 # Configuración local de Claude
 .claude/settings.local.json
+.claude/worktrees/
 
 # Datos de la empresa y de clientes (repo público): no versionar
 informes/

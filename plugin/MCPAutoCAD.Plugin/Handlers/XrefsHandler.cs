@@ -112,7 +112,7 @@ namespace MCPAutoCAD.Plugin.Handlers
             return result;
         }
 
-        private static string MapStatus(BlockTableRecord btr)
+        internal static string MapStatus(BlockTableRecord btr)
         {
             XrefStatus status;
             try

@@ -16,8 +16,14 @@ namespace MCPAutoCAD.GeometryCore.Draw
         /// <summary>Tamaño máximo del DXF de entrada (200 MB).</summary>
         public const long MaxFileBytes = 200L * 1024 * 1024;
 
-        /// <summary>Máximo de entidades importables que pasan el filtro en una llamada.</summary>
-        public const int MaxEntities = 100000;
+        /// <summary>
+        /// Máximo de entidades importables por llamada (fallo 38: 33 675 entidades en una llamada cerraron AutoCAD; 1 000–3 000
+        /// por llamada entraron bien). Por encima, filtrar_capas o páginas con <c>desde</c>.
+        /// </summary>
+        public const int MaxEntities = 10000;
+
+        /// <summary>Entidades por WblockCloneObjects dentro de una llamada (fallo 38): lotes pequeños, un solo CTRL+Z.</summary>
+        public const int BatchSize = 2000;
 
         /// <summary>Handles devueltos en la respuesta de escritura (el resto, solo como total).</summary>
         public const int MaxSampleHandles = 50;
@@ -29,6 +35,7 @@ namespace MCPAutoCAD.GeometryCore.Draw
         public static readonly IReadOnlyList<string> ImportableTypes = new[]
         {
             "LINE", "LWPOLYLINE", "POLYLINE", "CIRCLE", "ARC", "ELLIPSE", "SPLINE", "POINT", "TEXT", "MTEXT", "HATCH", "SOLID",
+            "INSERT",
         };
 
         private static readonly HashSet<string> Importable = new HashSet<string>(ImportableTypes, StringComparer.OrdinalIgnoreCase);
@@ -142,7 +149,243 @@ namespace MCPAutoCAD.GeometryCore.Draw
         /// <summary>Mensaje de INVALID_PARAMS cuando hay demasiadas entidades para una llamada.</summary>
         public static string TooManyEntities(int n) =>
             "el archivo tiene " + n.ToString(CultureInfo.InvariantCulture) + " entidades importables que pasan el filtro (máximo "
-            + MaxEntities.ToString(CultureInfo.InvariantCulture) + " por llamada): use filtrar_capas para importar por partes";
+            + MaxEntities.ToString(CultureInfo.InvariantCulture) + " por llamada): importe por partes con filtrar_capas (vea por_capa "
+            + "en la previsualización) o por páginas con desde: 0, " + MaxEntities.ToString(CultureInfo.InvariantCulture) + ", "
+            + (2 * MaxEntities).ToString(CultureInfo.InvariantCulture) + "…, una llamada después de otra";
+
+        /// <summary>Página de la selección: índice inicial, cantidad y el <c>desde</c> de la siguiente (null si es la última).</summary>
+        public sealed record Pagina(int Inicio, int Cantidad, int? Siguiente);
+
+        /// <summary>
+        /// Página de <paramref name="total"/> entidades seleccionadas. Sin <paramref name="desde"/>: todo, y error si pasa de
+        /// <see cref="MaxEntities"/>. Con desde: hasta MaxEntities a partir de ese índice (orden del espacio modelo del DXF).
+        /// desde negativo o fuera de rango → error.
+        /// </summary>
+        public static Pagina? Paginar(int total, int? desde, out string? error)
+        {
+            error = null;
+            if (desde == null)
+            {
+                if (total > MaxEntities)
+                {
+                    error = TooManyEntities(total);
+                    return null;
+                }
+
+                return new Pagina(0, total, null);
+            }
+
+            int d = desde.Value;
+            if (d < 0)
+            {
+                error = "desde: debe ser 0 o mayor";
+                return null;
+            }
+
+            if (total > 0 && d >= total)
+            {
+                error = "desde: " + d.ToString(CultureInfo.InvariantCulture) + " está fuera de rango (hay "
+                    + total.ToString(CultureInfo.InvariantCulture) + " entidades seleccionadas, de 0 a "
+                    + (total - 1).ToString(CultureInfo.InvariantCulture) + ")";
+                return null;
+            }
+
+            int cantidad = Math.Min(MaxEntities, Math.Max(0, total - d));
+            int? siguiente = d + cantidad < total ? d + cantidad : null;
+            return new Pagina(d, cantidad, siguiente);
+        }
+
+        /// <summary>
+        /// Reparte <paramref name="n"/> índices (0..n-1) en lotes de hasta <paramref name="tamano"/>, en orden, sin separar los
+        /// índices de un mismo grupo (un HATCH asociativo y su contorno van en el mismo lote para que el clonado conserve la
+        /// asociación). Un grupo más grande que el tamaño va en un lote propio. Índices fuera de rango en los grupos se ignoran.
+        /// </summary>
+        public static List<List<int>> Lotes(int n, IEnumerable<IReadOnlyCollection<int>>? grupos, int tamano)
+        {
+            if (tamano < 1)
+            {
+                throw new ArgumentOutOfRangeException(nameof(tamano));
+            }
+
+            // Unión-búsqueda: cada índice apunta a la raíz de su grupo (la raíz es el menor índice del grupo).
+            var padre = new int[Math.Max(0, n)];
+            for (int i = 0; i < padre.Length; i++)
+            {
+                padre[i] = i;
+            }
+
+            int Raiz(int x)
+            {
+                while (padre[x] != x)
+                {
+                    padre[x] = padre[padre[x]];
+                    x = padre[x];
+                }
+
+                return x;
+            }
+
+            foreach (IReadOnlyCollection<int> g in grupos ?? Enumerable.Empty<IReadOnlyCollection<int>>())
+            {
+                int? primero = null;
+                foreach (int i in g)
+                {
+                    if (i < 0 || i >= n)
+                    {
+                        continue;
+                    }
+
+                    if (primero == null)
+                    {
+                        primero = i;
+                        continue;
+                    }
+
+                    int a = Raiz(primero.Value), b = Raiz(i);
+                    if (a != b)
+                    {
+                        padre[Math.Max(a, b)] = Math.Min(a, b);
+                    }
+                }
+            }
+
+            var unidades = new Dictionary<int, List<int>>();
+            var orden = new List<int>();
+            for (int i = 0; i < n; i++)
+            {
+                int r = Raiz(i);
+                if (!unidades.TryGetValue(r, out List<int>? u))
+                {
+                    u = new List<int>();
+                    unidades[r] = u;
+                    orden.Add(r);
+                }
+
+                u.Add(i);
+            }
+
+            var lotes = new List<List<int>>();
+            var actual = new List<int>();
+            foreach (int r in orden)
+            {
+                List<int> u = unidades[r];
+                if (actual.Count > 0 && actual.Count + u.Count > tamano)
+                {
+                    lotes.Add(actual);
+                    actual = new List<int>();
+                }
+
+                actual.AddRange(u);
+            }
+
+            if (actual.Count > 0)
+            {
+                lotes.Add(actual);
+            }
+
+            return lotes;
+        }
+
+        /// <summary>Caracteres que AutoCAD no admite en un nombre de capa ('|' lo reserva para las capas de xref).</summary>
+        public const string InvalidLayerChars = "<>/\\\":;?*|,=`";
+
+        /// <summary>Primer carácter no válido de un nombre de capa, o null si el nombre es válido.</summary>
+        public static char? CaracterInvalidoEnCapa(string? nombre)
+        {
+            if (string.IsNullOrEmpty(nombre))
+            {
+                return null;
+            }
+
+            foreach (char c in nombre)
+            {
+                if (InvalidLayerChars.IndexOf(c) >= 0 || char.IsControl(c))
+                {
+                    return c;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Recorre un DXF ASCII (pares código/valor, una línea cada uno) y devuelve los nombres de capa no válidos en AutoCAD
+        /// con el carácter culpable: nombres de la tabla LAYER (código 2) y capas citadas por entidades (código 8). Sin
+        /// repetir, hasta <paramref name="max"/>. Un DXF binario no se analiza (lista vacía). Fallo 41.
+        /// </summary>
+        public static List<(string Nombre, char Caracter)> CapasInvalidasEnDxf(IEnumerable<string> lineas, int max = 10)
+        {
+            var res = new List<(string, char)>();
+            var vistos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string? objeto = null;
+            string? codigo = null;
+            bool primera = true;
+            foreach (string linea in lineas)
+            {
+                if (primera)
+                {
+                    primera = false;
+                    if (linea.StartsWith("AutoCAD Binary DXF", StringComparison.Ordinal))
+                    {
+                        return res;
+                    }
+                }
+
+                if (codigo == null)
+                {
+                    codigo = linea.Trim();
+                    continue;
+                }
+
+                string valor = linea;
+                if (codigo == "0")
+                {
+                    objeto = valor.Trim();
+                }
+                else if (codigo == "8" || (codigo == "2" && string.Equals(objeto, "LAYER", StringComparison.Ordinal)))
+                {
+                    char? malo = CaracterInvalidoEnCapa(valor);
+                    if (malo != null && vistos.Add(valor))
+                    {
+                        res.Add((valor, malo.Value));
+                        if (res.Count >= max)
+                        {
+                            return res;
+                        }
+                    }
+                }
+
+                codigo = null;
+            }
+
+            return res;
+        }
+
+        /// <summary>Mensaje cuando DxfIn falla y el DXF tiene nombres de capa no válidos (fallo 41).</summary>
+        public static string MensajeCapasInvalidas(string archivo, IReadOnlyList<(string Nombre, char Caracter)> capas) =>
+            "No se pudo leer el DXF '" + archivo + "'. Causa probable: nombres de capa que AutoCAD no admite: "
+            + string.Join(", ", capas.Select(c => "'" + c.Nombre + "' (carácter '" + c.Caracter + "')"))
+            + ". Renómbrelas en el DXF (por ejemplo '|' → '_'; AutoCAD reserva '|' para las capas de xref) y vuelva a importar.";
+
+        /// <summary>
+        /// Aviso de importación incompleta (fallo 36): cuántas faltan, por tipo, y la primera que no se creó (tipo, capa y handle
+        /// en el DXF). Lo creado queda en el mismo paso de deshacer.
+        /// </summary>
+        public static string AvisoIncompleta(
+            int creadas, int seleccionadas, IReadOnlyDictionary<string, int> faltantesPorTipo, string primeraTipo, string primeraCapa, string primeraHandle,
+            bool reintentado = true, int? desde = null)
+        {
+            string tipos = string.Join(", ", faltantesPorTipo.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal)
+                .Select(kv => kv.Key + " " + kv.Value.ToString(CultureInfo.InvariantCulture)));
+            return "importación INCOMPLETA: se crearon " + creadas.ToString(CultureInfo.InvariantCulture) + " de "
+                + seleccionadas.ToString(CultureInfo.InvariantCulture) + " entidades"
+                + (reintentado ? " aun después de reintentar" : " (no se reintentó: el recuento del modelo no cuadra con el clonado)")
+                + " (faltan " + tipos
+                + "; la primera que falta: " + primeraTipo + " en la capa '" + primeraCapa + "', handle " + primeraHandle + " del DXF). "
+                + "Lo creado quedó en un solo paso de deshacer: un CTRL+Z en AutoCAD lo quita entero; después repita la importación "
+                + (desde != null ? "con el mismo desde (" + desde.Value.ToString(CultureInfo.InvariantCulture) + ") " : "")
+                + "sin usar AutoCAD mientras corre.";
+        }
 
         /// <summary>Una entidad del archivo: tipo DXF normalizado y capa tal como viene en el archivo.</summary>
         public sealed record EntidadArchivo(string Tipo, string Capa);

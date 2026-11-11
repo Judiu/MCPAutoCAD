@@ -82,7 +82,8 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
         [InlineData("HATCH", true)]
         [InlineData("SOLID", true)]
         [InlineData("line", true)]
-        [InlineData("INSERT", false)]
+        [InlineData("INSERT", true)]
+        [InlineData("XREF", false)]
         [InlineData("DIMENSION", false)]
         [InlineData("POLYLINE3D", false)]
         [InlineData("3DFACE", false)]
@@ -100,7 +101,8 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
             var filtro = new HashSet<string>(new[] { "MAXI-VIA" }, StringComparer.OrdinalIgnoreCase);
             Assert.True(ImportGeometryRules.Selecciona("LWPOLYLINE", "maxi-via", filtro));
             Assert.False(ImportGeometryRules.Selecciona("LWPOLYLINE", "MAXI-TEXTO", filtro));
-            Assert.False(ImportGeometryRules.Selecciona("INSERT", "MAXI-VIA", filtro));
+            Assert.True(ImportGeometryRules.Selecciona("INSERT", "MAXI-VIA", filtro));
+            Assert.False(ImportGeometryRules.Selecciona("XREF", "MAXI-VIA", filtro));
             Assert.True(ImportGeometryRules.Selecciona("CIRCLE", "0", null));
             Assert.False(ImportGeometryRules.Selecciona("DIMENSION", "0", null));
         }
@@ -155,7 +157,7 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
             new("LWPOLYLINE", "MAXI-VIA"),
             new("CIRCLE", "MAXI-PUNTOS"),
             new("MTEXT", "MAXI-TEXTO-TRAZO"),
-            new("INSERT", "MAXI-VIA"),
+            new("IMAGE", "MAXI-VIA"),
             new("DIMENSION", "MAXI-COTAS"),
             new("HATCH", "MAXI-ACHURADO"),
             new("LWPOLYLINE", "0"),
@@ -172,8 +174,8 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
             Assert.Equal(1, plan.PorTipo["CIRCLE"]);
             Assert.Equal(1, plan.PorTipo["MTEXT"]);
             Assert.Equal(1, plan.PorTipo["HATCH"]);
-            Assert.False(plan.PorTipo.ContainsKey("INSERT"));
-            Assert.Equal(1, plan.Omitidas["INSERT"]);
+            Assert.False(plan.PorTipo.ContainsKey("IMAGE"));
+            Assert.Equal(1, plan.Omitidas["IMAGE"]);
             Assert.Equal(1, plan.Omitidas["DIMENSION"]);
             Assert.Equal(0, plan.ExcluidasPorCapa);
             Assert.Equal(2, plan.PorCapa["MAXI-VIA"]);
@@ -188,7 +190,7 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
 
             Assert.Equal(8, plan.Total);
             Assert.Equal(2, plan.Seleccionadas);
-            Assert.Equal(1, plan.Omitidas["INSERT"]);
+            Assert.Equal(1, plan.Omitidas["IMAGE"]);
             Assert.False(plan.Omitidas.ContainsKey("DIMENSION"));
             Assert.Equal(5, plan.ExcluidasPorCapa);
             Assert.Equal(new[] { "MAXI-NO-EXISTE" }, plan.FiltroSinCoincidencia);
@@ -209,11 +211,11 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
         public void PlanSinEntidadesImportablesQuedaVacio()
         {
             ImportGeometryRules.ImportPlan plan = ImportGeometryRules.Plan(
-                new[] { new ImportGeometryRules.EntidadArchivo("INSERT", "X") }, null, new HashSet<string>());
+                new[] { new ImportGeometryRules.EntidadArchivo("IMAGE", "X") }, null, new HashSet<string>());
             Assert.Equal(0, plan.Seleccionadas);
             Assert.Empty(plan.PorTipo);
             Assert.Empty(plan.CapasNuevas);
-            Assert.Equal(1, plan.Omitidas["INSERT"]);
+            Assert.Equal(1, plan.Omitidas["IMAGE"]);
         }
 
         [Fact]
@@ -231,7 +233,8 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
                 .Select(_ => new ImportGeometryRules.EntidadArchivo("LINE", "C"));
             ImportGeometryRules.ImportPlan plan = ImportGeometryRules.Plan(muchas, null, new HashSet<string>());
             Assert.True(plan.Excede);
-            Assert.Contains("100000", ImportGeometryRules.TooManyEntities(plan.Seleccionadas));
+            Assert.Contains("10000", ImportGeometryRules.TooManyEntities(plan.Seleccionadas));
+            Assert.Contains("desde", ImportGeometryRules.TooManyEntities(plan.Seleccionadas));
             Assert.Contains("filtrar_capas", ImportGeometryRules.TooManyEntities(plan.Seleccionadas));
         }
 
@@ -379,6 +382,206 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
             Assert.Contains("SORTENTS", ImportGeometryRules.AvisoOrdenDeDibujoHatch(2));
             Assert.Contains("no asociativos", ImportGeometryRules.AvisoHatchNoAsociativos(1));
             Assert.Contains("(R4)", ImportGeometryRules.AvisoSinExtension);
+        }
+
+        // ---- 0.10.3: páginas, lotes, capas no válidas, importación incompleta (fallos 36, 38, 41) ----
+
+        [Fact]
+        public void TopeBajaA10000PorFallo38()
+        {
+            Assert.Equal(10000, ImportGeometryRules.MaxEntities);
+            Assert.True(ImportGeometryRules.BatchSize <= ImportGeometryRules.MaxEntities);
+        }
+
+        [Fact]
+        public void PaginarSinDesdeAceptaHastaElTope()
+        {
+            ImportGeometryRules.Pagina? pg = ImportGeometryRules.Paginar(ImportGeometryRules.MaxEntities, null, out string? error);
+            Assert.Null(error);
+            Assert.Equal(new ImportGeometryRules.Pagina(0, ImportGeometryRules.MaxEntities, null), pg);
+        }
+
+        [Fact]
+        public void PaginarSinDesdeRechazaPorEncimaDelTope()
+        {
+            Assert.Null(ImportGeometryRules.Paginar(ImportGeometryRules.MaxEntities + 1, null, out string? error));
+            Assert.Contains("desde", error);
+            Assert.Contains("filtrar_capas", error);
+        }
+
+        [Fact]
+        public void PaginarConDesdeRecorreTodo()
+        {
+            int total = 33675, vistos = 0, paginas = 0;
+            int? desde = 0;
+            while (desde != null)
+            {
+                ImportGeometryRules.Pagina? pg = ImportGeometryRules.Paginar(total, desde, out string? error);
+                Assert.Null(error);
+                Assert.Equal(vistos, pg!.Inicio);
+                Assert.True(pg.Cantidad <= ImportGeometryRules.MaxEntities);
+                vistos += pg.Cantidad;
+                paginas++;
+                desde = pg.Siguiente;
+            }
+
+            Assert.Equal(total, vistos);
+            Assert.Equal(4, paginas);
+        }
+
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(500)]
+        [InlineData(501)]
+        public void PaginarRechazaDesdeFueraDeRango(int desde)
+        {
+            Assert.Null(ImportGeometryRules.Paginar(500, desde, out string? error));
+            Assert.StartsWith("desde:", error);
+        }
+
+        [Fact]
+        public void PaginarConDesdeCeroYSeleccionVaciaNoFalla()
+        {
+            ImportGeometryRules.Pagina? pg = ImportGeometryRules.Paginar(0, 0, out string? error);
+            Assert.Null(error);
+            Assert.Equal(0, pg!.Cantidad);
+            Assert.Null(pg.Siguiente);
+        }
+
+        [Fact]
+        public void LotesPartenEnOrdenYCubrenTodo()
+        {
+            List<List<int>> lotes = ImportGeometryRules.Lotes(4500, null, 2000);
+            Assert.Equal(new[] { 2000, 2000, 500 }, lotes.Select(l => l.Count));
+            Assert.Equal(Enumerable.Range(0, 4500), lotes.SelectMany(l => l));
+        }
+
+        [Fact]
+        public void LotesNoSeparanUnGrupo()
+        {
+            // HATCH en 1999 con su contorno en 1998 y 2000: los tres en el mismo lote.
+            var grupos = new List<IReadOnlyCollection<int>> { new[] { 1999, 1998, 2000 } };
+            List<List<int>> lotes = ImportGeometryRules.Lotes(4000, grupos, 2000);
+            Assert.Single(lotes, l => l.Contains(1998) && l.Contains(1999) && l.Contains(2000));
+            Assert.Equal(4000, lotes.Sum(l => l.Count));
+            Assert.Equal(4000, lotes.SelectMany(l => l).Distinct().Count());
+            Assert.All(lotes, l => Assert.True(l.Count <= 2000));
+        }
+
+        [Fact]
+        public void LotesGrupoMayorQueElTamanoVaSolo()
+        {
+            var grupos = new List<IReadOnlyCollection<int>> { new[] { 0, 1, 2, 3, 4 } };
+            List<List<int>> lotes = ImportGeometryRules.Lotes(7, grupos, 3);
+            Assert.Equal(new[] { 0, 1, 2, 3, 4 }, lotes[0]);
+            Assert.Equal(new[] { 5, 6 }, lotes[1]);
+        }
+
+        [Fact]
+        public void LotesUnenGruposEncadenadosEIgnoranIndicesMalos()
+        {
+            var grupos = new List<IReadOnlyCollection<int>> { new[] { 0, 5 }, new[] { 5, 9, 99, -1 } };
+            List<List<int>> lotes = ImportGeometryRules.Lotes(10, grupos, 2);
+            Assert.Contains(lotes, l => l.Contains(0) && l.Contains(5) && l.Contains(9));
+            Assert.Equal(10, lotes.Sum(l => l.Count));
+        }
+
+        [Fact]
+        public void LotesVacioYTamanoInvalido()
+        {
+            Assert.Empty(ImportGeometryRules.Lotes(0, null, 10));
+            Assert.Throws<ArgumentOutOfRangeException>(() => ImportGeometryRules.Lotes(3, null, 0));
+        }
+
+        [Theory]
+        [InlineData("A23|A-WALL", '|')]
+        [InlineData("A<B", '<')]
+        [InlineData("a=b", '=')]
+        [InlineData("C:D", ':')]
+        public void CaracterInvalidoEnCapaLoDetecta(string nombre, char esperado)
+        {
+            Assert.Equal(esperado, ImportGeometryRules.CaracterInvalidoEnCapa(nombre));
+        }
+
+        [Theory]
+        [InlineData("A23_A-WALL")]
+        [InlineData("S-GRID-IDEN")]
+        [InlineData("Planta 1 (muros)")]
+        [InlineData("")]
+        public void CaracterInvalidoEnCapaAceptaNombresValidos(string nombre)
+        {
+            Assert.Null(ImportGeometryRules.CaracterInvalidoEnCapa(nombre));
+        }
+
+        [Fact]
+        public void CapasInvalidasEnDxfLeeTablaYEntidades()
+        {
+            string[] dxf =
+            {
+                "  0", "SECTION", "  2", "TABLES",
+                "  0", "TABLE", "  2", "LAYER",
+                "  0", "LAYER", "  2", "A23|A-WALL", " 70", "0",
+                "  0", "LAYER", "  2", "BIEN", " 70", "0",
+                "  0", "ENDTAB", "  0", "ENDSEC",
+                "  0", "SECTION", "  2", "ENTITIES",
+                "  0", "LINE", "  8", "A23|A-WALL",
+                "  0", "LINE", "  8", "OTRA<MAL",
+                "  0", "TEXT", "  8", "BIEN", "  2", "no|es-capa",
+                "  0", "ENDSEC", "  0", "EOF",
+            };
+            List<(string Nombre, char Caracter)> malas = ImportGeometryRules.CapasInvalidasEnDxf(dxf);
+            Assert.Equal(new[] { ("A23|A-WALL", '|'), ("OTRA<MAL", '<') }, malas);
+        }
+
+        [Fact]
+        public void CapasInvalidasEnDxfRespetaElMaximoYElBinario()
+        {
+            var dxf = new List<string>();
+            for (int i = 0; i < 30; i++)
+            {
+                dxf.Add("  8");
+                dxf.Add("C|" + i);
+            }
+
+            Assert.Equal(10, ImportGeometryRules.CapasInvalidasEnDxf(dxf).Count);
+            Assert.Empty(ImportGeometryRules.CapasInvalidasEnDxf(new[] { "AutoCAD Binary DXF", "  8", "C|1" }));
+        }
+
+        [Fact]
+        public void MensajeCapasInvalidasNombraCapaYCaracter()
+        {
+            string m = ImportGeometryRules.MensajeCapasInvalidas("x.dxf", new List<(string, char)> { ("A23|A-WALL", '|') });
+            Assert.Contains("'A23|A-WALL'", m);
+            Assert.Contains("'|'", m);
+            Assert.Contains("x.dxf", m);
+        }
+
+        [Fact]
+        public void AvisoIncompletaDiceQueFaltaYComoDeshacer()
+        {
+            var faltan = new Dictionary<string, int> { ["MTEXT"] = 10, ["LWPOLYLINE"] = 2213 };
+            string m = ImportGeometryRules.AvisoIncompleta(781, 3004, faltan, "LWPOLYLINE", "A12-MUROS", "2F1");
+            Assert.Contains("781 de 3004", m);
+            Assert.Contains("LWPOLYLINE 2213, MTEXT 10", m);
+            Assert.Contains("2F1", m);
+            Assert.Contains("CTRL+Z", m);
+        }
+
+        [Fact]
+        public void AvisoIncompletaSinReintentoYConDesde()
+        {
+            var faltan = new Dictionary<string, int> { ["LINE"] = 3 };
+            string m = ImportGeometryRules.AvisoIncompleta(7, 10, faltan, "LINE", "C", "1A", reintentado: false, desde: 20000);
+            Assert.Contains("no se reintentó", m);
+            Assert.DoesNotContain("aun después de reintentar", m);
+            Assert.Contains("mismo desde (20000)", m);
+        }
+
+        [Fact]
+        public void MensajeCapasInvalidasNoAfirmaLaCausa()
+        {
+            string m = ImportGeometryRules.MensajeCapasInvalidas("x.dxf", new List<(string, char)> { ("A|B", '|') });
+            Assert.Contains("Causa probable", m);
         }
     }
 }

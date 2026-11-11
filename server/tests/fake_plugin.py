@@ -1804,7 +1804,7 @@ DETALLE_RUTA_COMODINES = "ruta: no se admiten '..' ni comodines"
 DETALLE_RUTA_FUERA = "ruta: fuera de las carpetas permitidas de lps.json (carpetas_export_permitidas)"
 # Sin carpetas explícitas, _validar_ruta_export usa las de insertar_export.
 _SIN_CARPETAS: Any = object()
-DETALLE_COMO_XREF = "como: xref no está disponible en 0.7 (solo bloque)"
+DETALLE_COMO_XREF = "como: xref no se admite en insertar_export; use adjuntar_xref para adjuntar una referencia externa"
 DETALLE_MURO_POLIGONO = "muro: el contorno debe ser un polígono cerrado simple de al menos 4 vértices"
 DETALLE_MURO_SIN_TRAMO = "muro: no se encontró un tramo recto (dos caras paralelas) cerca del punto indicado"
 DETALLE_MURO_DISTANCIA_4V = "muro: posicion por distancia solo se admite en contornos de 4 vértices"

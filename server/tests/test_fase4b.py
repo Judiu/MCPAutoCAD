@@ -1699,7 +1699,7 @@ def test_export_nombre_existente() -> None:
 
 
 def test_export_como_xref() -> None:
-    assert _detalle(_world(), "insertar_export", {**ARGS["insertar_export"], "como": "xref"}) == "como: xref no está disponible en 0.7 (solo bloque)"
+    assert _detalle(_world(), "insertar_export", {**ARGS["insertar_export"], "como": "xref"}) == "como: xref no se admite en insertar_export; use adjuntar_xref para adjuntar una referencia externa"
 
 
 def test_export_escala_cero() -> None:

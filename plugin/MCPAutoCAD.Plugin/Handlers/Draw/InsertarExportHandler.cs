@@ -87,7 +87,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     ""nombre_bloque"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 200, ""description"": ""Nombre del bloque a crear; si ya existe se rechaza. Por defecto CYPE_<nombre del archivo> (con _2, _3… si existe)."" },
     ""filtrar_capas"": { ""type"": ""string"", ""enum"": [""todas"", ""cype""], ""default"": ""todas"", ""description"": ""'cype' = deja fuera las entidades del modelo cuya capa no es 0 ni del grupo cype de lps.json (se borran en memoria, nunca en el archivo) y las cuenta; 'todas' = importa todo."" },
     ""capa_destino"": " + DrawWrite.SchemaCapa + @",
-    ""como"": { ""type"": ""string"", ""enum"": [""bloque"", ""xref""], ""default"": ""bloque"", ""description"": ""Solo 'bloque' está disponible en 0.7; xref se rechaza."" },
+    ""como"": { ""type"": ""string"", ""enum"": [""bloque"", ""xref""], ""default"": ""bloque"", ""description"": ""Solo 'bloque' está disponible; para una referencia externa (xref) use adjuntar_xref."" },
     ""espacio"": " + DrawWrite.SchemaEspacio + @",
     ""forzar"": " + DrawWrite.SchemaForzar + @",
     ""aceptar_sin_unidades"": " + DrawWrite.SchemaAceptarSinUnidades + @"
@@ -226,7 +226,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             DrawLayerFactory.Plan(capaDestino, null);
             if (ParamReader.OptionalEnum(p, "como", Comos) == ComoXref)
             {
-                throw ToolException.InvalidParams("como: xref no está disponible en 0.7 (solo bloque)");
+                throw ToolException.InvalidParams("como: xref no se admite en insertar_export; use adjuntar_xref para adjuntar una referencia externa");
             }
 
             string? espacio = ParamReader.OptionalString(p, "espacio", 1, 255);
@@ -317,7 +317,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                     {
                         DisposeSide(v.Side);   // §5G.4: Dispose SIEMPRE; nunca se guarda la base lateral.
                     }
-                });
+                }, () => DisposeSide(v.Side));   // 0.10.3: también si la escritura no llega a ejecutarse
                 pendiente = resultado is Task { IsCompleted: false };
                 return resultado;
             }
