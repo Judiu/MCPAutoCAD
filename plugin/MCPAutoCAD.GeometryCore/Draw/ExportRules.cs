@@ -168,6 +168,31 @@ namespace MCPAutoCAD.GeometryCore.Draw
         public static bool IsSafeAbsolutePath(string ruta) =>
             !string.IsNullOrWhiteSpace(ruta) && IsAbsolute(ruta) && !HasUnsafeContent(ruta);
 
+        /// <summary>
+        /// Valida la ruta de una plantilla SIN tocar el disco: la misma seguridad de forma que <see cref="IsSafeAbsolutePath"/>
+        /// (absoluta, sin '..', comodines ni caracteres de control) y extensión .dwt o .dwg (sin distinguir mayúsculas). No sirve
+        /// <see cref="ValidatePath"/>: exige .dwg y las plantillas son .dwt. Devuelve null o el detalle con el prefijo "plantilla: ".
+        /// </summary>
+        public static string? ValidateTemplatePath(string ruta)
+        {
+            if (string.IsNullOrWhiteSpace(ruta) || !IsAbsolute(ruta))
+            {
+                return "plantilla: debe ser una ruta absoluta";
+            }
+
+            if (HasUnsafeContent(ruta))
+            {
+                return "plantilla: no se admiten '..' ni comodines";
+            }
+
+            if (!ruta.EndsWith(".dwt", StringComparison.OrdinalIgnoreCase) && !ruta.EndsWith(".dwg", StringComparison.OrdinalIgnoreCase))
+            {
+                return "plantilla: solo se admiten archivos .dwt o .dwg";
+            }
+
+            return null;
+        }
+
         /// <summary>Ruta con '\' como separador y sin separadores repetidos (conserva el prefijo UNC).</summary>
         public static string NormalizePath(string ruta) => NormalizeSeparators(ruta);
 

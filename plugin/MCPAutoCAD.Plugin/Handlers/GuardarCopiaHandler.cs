@@ -37,7 +37,7 @@ namespace MCPAutoCAD.Plugin.Handlers
 
         public string Description =>
             "ESCRIBE un .dwg en disco con una COPIA del documento activo, incluidos sus cambios sin guardar; el dibujo abierto no cambia de nombre, de ruta ni de estado de modificado (solo se guarda el clon). " +
-            "Rechaza la ruta de un documento abierto, una ruta existente (salvo sobrescribir: true) y carpetas fuera de carpetas_export_permitidas de lps.json. Con solo_seleccion: true guarda solo lo seleccionado ahora en AutoCAD (como WBLOCK de la selección; el dibujo abierto tampoco cambia). No crea paso de deshacer.";
+            "Rechaza la ruta de un documento abierto, una ruta existente (salvo sobrescribir: true), carpetas fuera de carpetas_export_permitidas y dentro de carpetas_solo_lectura de lps.json. Con solo_seleccion: true guarda solo lo seleccionado ahora en AutoCAD (como WBLOCK de la selección; el dibujo abierto tampoco cambia). No crea paso de deshacer.";
 
         public bool RequiresDocument => true;
 
@@ -129,6 +129,19 @@ namespace MCPAutoCAD.Plugin.Handlers
             }
 
             string full = Path.GetFullPath(p.Ruta);
+
+            // carpetas_solo_lectura de lps.json (decisión del usuario 2026-11-10: O:\, planos de clientes): nunca se escribe ahí.
+            // También la carpeta (existe): resuelve uniones/SUBST que la ruta del archivo nuevo, aún inexistente, no resuelve.
+            List<string> soloLectura = Documento.DocumentoSupport.CarpetasSoloLectura();
+            string? carpetaDestino = Path.GetDirectoryName(full);
+            if (Documento.DocumentoSupport.EnCarpetaSoloLectura(full, soloLectura)
+                || (carpetaDestino != null && Directory.Exists(carpetaDestino) && Documento.DocumentoSupport.EnCarpetaSoloLectura(carpetaDestino, soloLectura)))
+            {
+                throw ToolException.InvalidParams(
+                    "ruta_destino: está en una carpeta de carpetas_solo_lectura de lps.json; guarde la copia en otra carpeta",
+                    new Dictionary<string, object?> { ["ruta_destino"] = p.Ruta });
+            }
+
             foreach (Document other in Application.DocumentManager)
             {
                 if (SamePath(full, other.Database.Filename) || SamePath(full, other.Name))

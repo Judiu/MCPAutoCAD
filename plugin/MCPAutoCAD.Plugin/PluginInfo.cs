@@ -3,7 +3,7 @@ namespace MCPAutoCAD.Plugin
     /// <summary>Constantes de versión y límites del contrato (protocol.md).</summary>
     internal static class PluginInfo
     {
-        public const string PluginVersion = "0.10.1";
+        public const string PluginVersion = "0.10.2";
         public const string ProtocolVersion = "0.8";
 
         /// <summary>Presupuesto de auditar_dibujo en el hilo principal (protocol.md §3.10), por debajo de MainThreadTimeoutMs.</summary>

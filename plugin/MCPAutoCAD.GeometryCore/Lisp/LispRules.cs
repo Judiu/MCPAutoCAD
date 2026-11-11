@@ -75,6 +75,15 @@ namespace MCPAutoCAD.GeometryCore.Lisp
             "-INSERT", "CLASSICINSERT", "DATAEXTRACTION", "DATALINK", "TOOLPALETTES", "FILEOPEN",
             "SCRIPTCALL", "SHARE", "SHAREDVIEWS", "APPAUTOLOAD", "SECUREREMOTEACCESS", "EXPORTPDF", "EXPORTDWF",
             "EXPORTDWFX", "DXFOUT", "SAVETOWEBMOBILE", "DBCONNECT", "CLOSEALLOTHER",
+            // Auditoría 2026-11-10 (O:\ en solo lectura): más comandos que escriben archivos junto al dibujo activo.
+            "BMPOUT", "JPGOUT", "PNGOUT", "TIFOUT", "WMFOUT", "PSOUT", "STLOUT", "ACISOUT", "MSLIDE", "ATTEXT", "-ATTEXT",
+            "EATTEXT", "DGNEXPORT", "FBXEXPORT", "IGESEXPORT", "3DDWF", "EXPORTLAYOUT", "EXPORTTOAUTOCAD", "-EXPORTTOAUTOCAD",
+            "REFEDIT", "REFCLOSE", "BSAVEAS", "BSAVE", "LOGFILEON", "TABLEEXPORT", "SAVEIMG", "DWGCONVERT", "AUTOPUBLISH",
+            "MASSPROP", "-LAYOUT", "LAYOUT",
+            // Auditoría: comandos que escriben archivos, cargan código o abren URLs/objetos externos.
+            "ATTOUT", "MKLTYPE", "MKSHAPE", "COMPILE", "DIMEX", "LMAN", "REVERT", "QQUIT", "CONVERTCTB", "CONVERTPSTYLES",
+            "PLOTSTAMP", "CUIEXPORT", "LAYERSTATE", "FLATSHOT", "SECTIONPLANETOBLOCK", "RENDER", "3DPRINT", "XOPEN",
+            "GOTOURL", "INSERTOBJ", "LOGFILEMODE",
         };
 
         /// <summary>

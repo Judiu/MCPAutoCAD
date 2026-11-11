@@ -1,5 +1,6 @@
 {
  "version": 2,
+ "carpetas_solo_lectura": ["O:\\"],
  "fuente": "Plano 6X12 normalizado (tests/fixtures/casa6x12_limpio.dwg tras aplicar docs/mapa_capas_6x12.json, 2026-10-28) + capas destino de capas_preferidas. Sustituye a la versión 1 (161 capas del plano madre sin limpiar, EXP 26-XXXX), guardada en standards/historico/lps_v1_6x12_sucio.json.",
  "unidades": {
   "insunits": 6,

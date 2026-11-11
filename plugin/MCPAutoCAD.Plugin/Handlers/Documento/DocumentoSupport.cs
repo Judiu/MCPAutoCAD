@@ -253,6 +253,31 @@ namespace MCPAutoCAD.Plugin.Handlers.Documento
             return ReferenceEquals(docs.MdiActiveDocument, doc);
         }
 
+        /// <summary>
+        /// Avisos de los diálogos que AutoCAD puede mostrar al abrir un dibujo (DWGCHECK, PROXYNOTICE, SECURELOAD). Los usan
+        /// abrir_documento y nuevo_documento: solo añaden advertencias; el rechazo por archivos de carga automática va aparte.
+        /// </summary>
+        public static void AnadirAvisosDeApertura(List<string> warnings)
+        {
+            int? dwgCheck = SafeIntSysVar("DWGCHECK");
+            // DWGCHECK 1 o 3: AutoCAD pregunta al abrir un dibujo que puede estar dañado. Otros valores no bloquean.
+            if (dwgCheck == 1 || dwgCheck == 3)
+            {
+                warnings.Add("DWGCHECK=" + dwgCheck.Value + ": AutoCAD puede abrir un diálogo al abrir el dibujo que bloquee el puente hasta que el usuario responda.");
+            }
+
+            int? proxyNotice = SafeIntSysVar("PROXYNOTICE");
+            if (proxyNotice != null && proxyNotice.Value != 0)
+            {
+                warnings.Add("PROXYNOTICE=" + proxyNotice.Value + ": AutoCAD puede abrir un diálogo por objetos proxy que bloquee el puente hasta que el usuario responda.");
+            }
+
+            if (SafeIntSysVar("SECURELOAD") == 0)
+            {
+                warnings.Add("SECURELOAD=0: AutoCAD carga código de la carpeta del dibujo sin avisar (aquí se rechaza si hay archivos de carga automática).");
+            }
+        }
+
         /// <summary>Primer archivo de bloqueo de AutoCAD (.dwl / .dwl2) de un dibujo, o null. Su presencia haría que AutoCAD pregunte.</summary>
         public static string? BloqueoDe(string rutaDwg)
         {

@@ -87,6 +87,15 @@ namespace MCPAutoCAD.GeometryCore.Tests.Lisp
             Assert.True(LispRules.IsDenied("_SH"));
         }
 
+        [Theory]
+        [InlineData("ATTOUT")]
+        [InlineData("_.COMPILE")]
+        [InlineData("-RENDER")]
+        [InlineData("GOTOURL")]
+        [InlineData("logfilemode")]
+        [InlineData("CONVERTPSTYLES")]
+        public void Comandos_AmpliacionDeLaListaDenegada(string comando) => Assert.True(LispRules.IsDenied(comando));
+
         [Fact]
         public void ParsePins_RespuestaConPrefijoProhibida()
         {

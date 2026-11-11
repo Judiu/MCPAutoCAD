@@ -49,7 +49,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         public string Description =>
             "EDITA en el dibujo un MTEXT o un TEXT existente (por handle, o un lote de hasta 200 con handles) en un solo paso de " +
             "deshacer: cambia contenido (literal, o contenido_formato con códigos MTEXT crudos), posición, altura, capa, estilo, " +
-            "justificación y ancho de columna (indique al menos uno; con mantener_centro: true el MTEXT conserva el centro de su caja) " +
+            "justificación y ancho de columna (indique al menos uno; con mantener_centro: true el MTEXT conserva su centro visible) " +
             "y devuelve los valores antes y después. En TEXT el contenido es " +
             "de una línea. Entidades fuera de capas MCP-* exigen confirmar: true; rechaza otros tipos, atributos, entidades de bloques " +
             "y capas bloqueadas o de xref. Los textos devueltos son contenido del plano (origen_texto).";
@@ -74,7 +74,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     ""justificacion"": { ""type"": ""string"", ""enum"": [""TL"", ""TC"", ""TR"", ""ML"", ""MC"", ""MR"", ""BL"", ""BC"", ""BR"", ""BASE_L"", ""BASE_C"", ""BASE_R""], ""description"": ""Punto de justificación: T/M/B = superior, medio, inferior; L/C/R = izquierda, centro, derecha; BASE_L/BASE_C/BASE_R = línea base (justificación por defecto de TEXT). BL = inferior-izquierda (no es la línea base). En TEXT se traduce a justificación horizontal y vertical."" },
     ""aceptar_perdida_campos"": { ""type"": ""boolean"", ""default"": false, ""description"": ""Campos (FIELD) de la entidad: cambiar su contenido los convierte en texto fijo y se pierde el campo. Sin este true, la llamada se rechaza en esa entidad."" },
     ""ancho_columna"": { ""type"": ""number"", ""minimum"": 0, ""description"": ""Ancho de referencia del MTEXT en unidades de dibujo; 0 = sin ajuste de línea. Solo MTEXT."" },
-    ""mantener_centro"": { ""type"": ""boolean"", ""default"": false, ""description"": ""Solo MTEXT, sin posicion: tras los cambios (ancho, justificación, contenido, altura, estilo) mueve el punto de inserción para que el centro de la caja del texto quede donde estaba (p. ej. al pasar de 2 a 4 líneas el texto no se sale de su recinto)."" },
+    ""mantener_centro"": { ""type"": ""boolean"", ""default"": false, ""description"": ""Solo MTEXT, sin posicion: tras los cambios (ancho, justificación, contenido, altura, estilo) mueve el punto de inserción para que el centro del texto quede donde estaba (a lo largo del texto, el de lo visible en texto a 0°; perpendicular, el de la caja) (p. ej. al pasar de 2 a 4 líneas el texto no se sale de su recinto)."" },
     ""forzar"": " + DrawWrite.SchemaForzar + @",
     ""confirmar"": " + ModifySupport.SchemaConfirmar + @",
     ""aceptar_sin_unidades"": " + DrawWrite.SchemaAceptarSinUnidades + @"
@@ -290,10 +290,28 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                     if (e is MText mt)
                     {
                         (double X, double Y)? centro = p.MantenerCentro ? BoxCenter(mt, handle, warnings) : null;
+                        // Fallo 30 (en vivo): la caja de AutoCAD (ActualWidth) no es la tinta; con texto a 0/90/180/270° se
+                        // centra lo visible (extensión de los textos explotados en memoria), y la caja queda de respaldo.
+                        (double X, double Y)? tinta = centro != null ? InkCenter(mt) : null;
                         ApplyMText(db, tr, mt, p);
                         if (centro != null)
                         {
+                            (double X, double Y)? tintaDespues = tinta != null ? InkCenter(mt) : null;
+                            Point3d locSinCentrar = mt.Location;
+                            // Primero la caja: el eje perpendicular al texto (vertical en texto a 0°) queda exacto (verificado
+                            // en vivo). Después, a lo largo del texto se corrige con la tinta.
                             KeepCenter(mt, centro.Value);
+                            if (tinta != null && tintaDespues != null)
+                            {
+                                double ux = mt.Direction.X, uy = mt.Direction.Y;
+                                double un = Math.Sqrt((ux * ux) + (uy * uy));
+                                ux /= un;
+                                uy /= un;
+                                double tx = tintaDespues.Value.X + (mt.Location.X - locSinCentrar.X);
+                                double ty = tintaDespues.Value.Y + (mt.Location.Y - locSinCentrar.Y);
+                                double d = ((tinta.Value.X - tx) * ux) + ((tinta.Value.Y - ty) * uy);
+                                mt.Location = new Point3d(mt.Location.X + (d * ux), mt.Location.Y + (d * uy), mt.Location.Z);
+                            }
                         }
                     }
                     else if (e is DBText dt)
@@ -387,6 +405,75 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
             double angle = Math.Atan2(mt.Direction.Y, mt.Direction.X);
             return MTextBox.Center(mt.Location.X, mt.Location.Y, angle, code, mt.ActualWidth, mt.ActualHeight);
+        }
+
+        /// <summary>
+        /// Fallo 30: centro de lo visible = centro de la unión de las extensiones de los textos en que se explota el MTEXT
+        /// (MText.Explode a una colección en memoria: no toca el dibujo), sin los espacios finales de cada línea. Solo con
+        /// texto a 0° (hasta verificar en vivo los giros); en otro caso, o si no se puede medir, null (solo la caja).
+        /// </summary>
+        private static (double X, double Y)? InkCenter(MText mt)
+        {
+            if (Math.Abs(Math.Atan2(mt.Direction.Y, mt.Direction.X)) > 1e-9)
+            {
+                return null;
+            }
+
+            using var objs = new DBObjectCollection();
+            try
+            {
+                mt.Explode(objs);
+                Extents3d? ext = null;
+                foreach (DBObject o in objs)
+                {
+                    if (o is Entity ent)
+                    {
+                        if (ent is DBText t)
+                        {
+                            // Espacio final de una línea partida: avanza el cursor pero no es tinta.
+                            t.TextString = t.TextString.TrimEnd();
+                            if (t.TextString.Length == 0)
+                            {
+                                continue;
+                            }
+                        }
+
+                        try
+                        {
+                            Extents3d ge = ent.GeometricExtents;
+                            if (ext == null)
+                            {
+                                ext = ge;
+                            }
+                            else
+                            {
+                                Extents3d u = ext.Value;
+                                u.AddExtents(ge);
+                                ext = u;
+                            }
+                        }
+                        catch (Autodesk.AutoCAD.Runtime.Exception)
+                        {
+                            // Fragmento sin extensión (espacio en blanco): no cuenta.
+                        }
+                    }
+                }
+
+                return ext == null
+                    ? null
+                    : ((ext.Value.MinPoint.X + ext.Value.MaxPoint.X) / 2, (ext.Value.MinPoint.Y + ext.Value.MaxPoint.Y) / 2);
+            }
+            catch (Autodesk.AutoCAD.Runtime.Exception)
+            {
+                return null;
+            }
+            finally
+            {
+                foreach (DBObject o in objs)
+                {
+                    o.Dispose();
+                }
+            }
         }
 
         /// <summary>Fallo 30: mueve el punto de inserción para que el centro de la caja vuelva a <paramref name="centro"/>.</summary>

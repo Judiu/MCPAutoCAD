@@ -23,7 +23,8 @@ ENV_TIMEOUT = "MCP_AUTOCAD_TIMEOUT"
 FAST_METHODS = {"ping": PING_TIMEOUT_S}
 # protocol.md §3, regla 7: el plugin espera 60 s a estas herramientas; el servidor, algo más para recibir su respuesta o su error.
 # cargar_lisp: el plugin espera hasta 120 s la aprobación del usuario en un diálogo de AutoCAD (plugin 0.8.5).
-SLOW_METHODS = {"vista_png": 75.0, "insertar_export": 75.0, "auditar_archivo": 75.0, "cargar_lisp": 150.0, "crear_layout": 75.0, "configurar_layout": 75.0, "guardar": 75.0, "abrir_documento": 75.0, "muros_desde_lineas": 75.0, "reemplazar_texto": 75.0}
+# importar_geometria (0.10.1): leer un DXF de ~25.000 entidades y clonarlo tarda más que el resto; el plugin espera 120 s.
+SLOW_METHODS = {"vista_png": 75.0, "insertar_export": 75.0, "auditar_archivo": 75.0, "cargar_lisp": 150.0, "crear_layout": 75.0, "configurar_layout": 75.0, "guardar": 75.0, "abrir_documento": 75.0, "muros_desde_lineas": 75.0, "reemplazar_texto": 75.0, "importar_geometria": 150.0, "nuevo_documento": 75.0}
 
 
 def timeout_from_env(environ: Mapping[str, str] | None = None) -> float:

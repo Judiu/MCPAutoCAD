@@ -3880,6 +3880,18 @@ def test_otra_herramienta_con_dos_instancias_sigue_pidiendo_seleccion() -> None:
     run(World(100, 200).server(), body)
 
 
+def test_timeout_lento_de_importar_geometria() -> None:
+    # Plugin 0.10.1: importar_geometria espera hasta 120 s en el hilo principal (DXF grande); el servidor, 150 s.
+    assert SLOW_METHODS["importar_geometria"] == 150.0
+    assert PipeClient(lambda: None, timeout=15).timeout_for("importar_geometria") == 150.0  # type: ignore[arg-type,return-value]
+
+
+def test_timeout_lento_de_nuevo_documento() -> None:
+    # Plugin 0.10.1: nuevo_documento crea el .dwg desde la plantilla y lo abre; el plugin espera hasta 75 s (plazo general de abrir).
+    assert SLOW_METHODS["nuevo_documento"] == 75.0
+    assert PipeClient(lambda: None, timeout=15).timeout_for("nuevo_documento") == 75.0  # type: ignore[arg-type,return-value]
+
+
 def test_timeout_lento_de_cargar_lisp() -> None:
     # Plugin 0.8.5: cargar_lisp espera hasta 120 s la aprobación del usuario en un diálogo de AutoCAD (plugin 140 s).
     assert SLOW_METHODS["cargar_lisp"] == 150.0

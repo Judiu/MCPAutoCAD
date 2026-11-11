@@ -326,7 +326,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             string carpetaImagenes = Path.Combine(carpetaDwg, ImagenRules.CarpetaImagenes);
 
             List<string> soloLectura = DocumentoSupport.CarpetasSoloLectura();
-            if (DocumentoSupport.EnCarpetaSoloLectura(Path.Combine(carpetaImagenes, origen.Nombre), soloLectura))
+            // También la carpeta del DWG (existe): resuelve uniones/SUBST que la ruta nueva, aún inexistente, no resuelve.
+            if (DocumentoSupport.EnCarpetaSoloLectura(Path.Combine(carpetaImagenes, origen.Nombre), soloLectura)
+                || DocumentoSupport.EnCarpetaSoloLectura(carpetaDwg, soloLectura))
             {
                 throw ToolException.InvalidParams(
                     "copiar: la carpeta del dibujo está en carpetas_solo_lectura de lps.json; no se copian imágenes junto a un plano de solo lectura (use copiar:false)");

@@ -121,6 +121,45 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
             Assert.Equal(Comodines, ExportRules.ValidatePath(@"C:\CYPE\..\Windows\x.dwg", new[] { @"C:\CYPE" }));
         }
 
+        [Theory]
+        [InlineData(@"C:\plantillas\LPS_METROS.dwt")]
+        [InlineData(@"D:\plantillas\base.DWT")]
+        [InlineData(@"C:\plantillas\base.dwg")]
+        [InlineData(@"\\servidor\plantillas\base.dwt")]
+        public void Plantilla_Valida(string ruta)
+        {
+            Assert.Null(ExportRules.ValidateTemplatePath(ruta));
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("LPS_METROS.dwt")]
+        [InlineData(@"..\base.dwt")]
+        [InlineData(@"\base.dwt")]
+        [InlineData(@"C:\plantillas\*.dwt")]
+        public void Plantilla_NoAbsolutaOInsegura(string ruta)
+        {
+            string? error = ExportRules.ValidateTemplatePath(ruta);
+            Assert.NotNull(error);
+            Assert.StartsWith("plantilla: ", error);
+        }
+
+        [Theory]
+        [InlineData(@"C:\plantillas\base.dxf")]
+        [InlineData(@"C:\plantillas\base")]
+        [InlineData(@"C:\plantillas\base.dwt.bak")]
+        public void Plantilla_ExtensionNoAdmitida(string ruta)
+        {
+            Assert.Equal("plantilla: solo se admiten archivos .dwt o .dwg", ExportRules.ValidateTemplatePath(ruta));
+        }
+
+        [Fact]
+        public void Plantilla_NoUsaLaReglaDeDwg()
+        {
+            Assert.Null(ExportRules.ValidateTemplatePath(@"C:\plantillas\base.dwt"));
+            Assert.NotNull(ExportRules.ValidatePath(@"C:\plantillas\base.dwt", null));
+        }
+
         [Fact]
         public void BlockNameFor_Simple()
         {

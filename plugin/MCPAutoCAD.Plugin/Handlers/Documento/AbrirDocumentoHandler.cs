@@ -161,23 +161,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Documento
             var warnings = new List<string>();
 
             // Diálogos y comportamientos de apertura que AutoCAD puede mostrar (bloquean el hilo principal si aparecen).
-            int? dwgCheck = DocumentoSupport.SafeIntSysVar("DWGCHECK");
-            // DWGCHECK 1 o 3: AutoCAD pregunta al abrir un dibujo que puede estar dañado. Otros valores no bloquean.
-            if (dwgCheck == 1 || dwgCheck == 3)
-            {
-                warnings.Add("DWGCHECK=" + dwgCheck.Value + ": AutoCAD puede abrir un diálogo al abrir el dibujo que bloquee el puente hasta que el usuario responda.");
-            }
-
-            int? proxyNotice = DocumentoSupport.SafeIntSysVar("PROXYNOTICE");
-            if (proxyNotice != null && proxyNotice.Value != 0)
-            {
-                warnings.Add("PROXYNOTICE=" + proxyNotice.Value + ": AutoCAD puede abrir un diálogo por objetos proxy que bloquee el puente hasta que el usuario responda.");
-            }
-
-            if (DocumentoSupport.SafeIntSysVar("SECURELOAD") == 0)
-            {
-                warnings.Add("SECURELOAD=0: AutoCAD carga código de la carpeta del dibujo sin avisar (aquí se rechaza si hay archivos de carga automática).");
-            }
+            DocumentoSupport.AnadirAvisosDeApertura(warnings);
 
             // Carpetas de solo lectura: dentro → se abre siempre en solo lectura (con aviso). lps.json roto → INVALID_PARAMS.
             if (DocumentoSupport.EnCarpetaSoloLectura(full, DocumentoSupport.CarpetasSoloLectura()) && !p.SoloLectura)
