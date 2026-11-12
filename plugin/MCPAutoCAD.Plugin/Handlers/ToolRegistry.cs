@@ -19,7 +19,7 @@ namespace MCPAutoCAD.Plugin.Handlers
         /// <summary>
         /// Orden del manifest en protocolo 0.8 (protocol.md §4): §5, §5B, §5C, §5D, §5E, §5F, §5G y §5H (56 herramientas).
         /// Tras las cuatro de la Fase 4B (§5G: vano, union_muros, cotas_automaticas, insertar_export) va al final
-        /// auditar_archivo (Fase 5, §5H.1). Plugin 0.8.1 añade al final siete herramientas (63 en total); 0.8.2 añade borrar_excepto_seleccion (64); 0.8.4 añade cargar_lisp, ejecutar_comando y cancelar_comando (67); 0.8.5 añade crear_lisp (68); 0.9.0 (fase M) añade listar_layouts, crear_viewport, ajustar_viewport, renombrar_layout, ordenar_layouts, borrar_layout, copiar_layout, crear_layout y configurar_layout (77; detectar_planos se retiró por decisión del usuario); 0.10.0 añade cambiar_propiedades, reemplazar_texto, editar_cota, muros_desde_lineas, guardar, abrir_documento, activar_documento y estilo_cota (85); 0.10.1 añade insertar_imagen (86); 0.10.2, importar_geometria y nuevo_documento (88); 0.10.3, estado_capas, borrar_por_filtro, adjuntar_xref y gestionar_xref (92).
+        /// auditar_archivo (Fase 5, §5H.1). Plugin 0.8.1 añade al final siete herramientas (63 en total); 0.8.2 añade borrar_excepto_seleccion (64); 0.8.4 añade cargar_lisp, ejecutar_comando y cancelar_comando (67); 0.8.5 añade crear_lisp (68); 0.9.0 (fase M) añade listar_layouts, crear_viewport, ajustar_viewport, renombrar_layout, ordenar_layouts, borrar_layout, copiar_layout, crear_layout y configurar_layout (77; detectar_planos se retiró por decisión del usuario); 0.10.0 añade cambiar_propiedades, reemplazar_texto, editar_cota, muros_desde_lineas, guardar, abrir_documento, activar_documento y estilo_cota (85); 0.10.1 añade insertar_imagen (86); 0.10.2, importar_geometria y nuevo_documento (88); 0.10.3, estado_capas, borrar_por_filtro, adjuntar_xref y gestionar_xref (92); 0.10.4, mover_por_filtro (93).
         /// </summary>
         private static readonly string[] ManifestOrder =
         {
@@ -48,6 +48,7 @@ namespace MCPAutoCAD.Plugin.Handlers
             "importar_geometria",
             "nuevo_documento",
             "estado_capas", "borrar_por_filtro", "adjuntar_xref", "gestionar_xref",
+            "mover_por_filtro",
         };
 
         public ToolRegistry(int pid)

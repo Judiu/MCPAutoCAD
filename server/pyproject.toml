@@ -1,6 +1,6 @@
 [project]
 name = "mcp-autocad"
-version = "0.8.6"
+version = "0.8.7"
 description = "Servidor MCP (stdio) que traduce herramientas MCP a JSON-RPC sobre el named pipe del plugin de AutoCAD 2026."
 requires-python = ">=3.12"
 dependencies = [

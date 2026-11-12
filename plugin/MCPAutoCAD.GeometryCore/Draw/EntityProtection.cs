@@ -61,8 +61,10 @@ namespace MCPAutoCAD.GeometryCore.Draw
         /// Primer error en el orden de §5D.8 (paso 2 sobre todos los handles, después el paso 3, después el 4), o null
         /// si todo es válido. Paso 2 por handle: atributo, dentro de una definición de bloque, viewport de papel. Paso 3:
         /// capa bloqueada, capa dependiente de xref. Paso 4: todas en el mismo espacio.
+        /// <paramref name="permitirCapaBloqueada"/> (fallo 43, solo copiar con permitir_origen_bloqueado): la capa bloqueada
+        /// deja de ser motivo de rechazo; la capa de xref lo sigue siendo.
         /// </summary>
-        public static ProtectionError? Classify(IReadOnlyList<EntityInfo> entities)
+        public static ProtectionError? Classify(IReadOnlyList<EntityInfo> entities, bool permitirCapaBloqueada = false)
         {
             if (entities == null)
             {
@@ -91,7 +93,7 @@ namespace MCPAutoCAD.GeometryCore.Draw
             for (int i = 0; i < entities.Count; i++)
             {
                 EntityInfo e = entities[i];
-                if (e.CapaBloqueada)
+                if (e.CapaBloqueada && !permitirCapaBloqueada)
                 {
                     return new ProtectionError(Prefix(i) + "la entidad está en una capa bloqueada", e.Handle, e.Capa);
                 }

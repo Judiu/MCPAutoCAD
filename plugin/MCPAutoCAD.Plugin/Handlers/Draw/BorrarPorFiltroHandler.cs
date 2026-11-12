@@ -89,9 +89,12 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
   ""additionalProperties"": false
 }");
 
-        /// <summary>Parámetros leídos (sin AutoCAD).</summary>
-        private sealed class Params
+        /// <summary>Parámetros de filtro leídos (sin AutoCAD). También los usa mover_por_filtro (fallo 44).</summary>
+        internal sealed class Params
         {
+            /// <summary>Verbo en plural pasado para los avisos ("borraron" / "movieron").</summary>
+            public string Plural { get; set; } = "borraron";
+
             public string Espacio { get; set; } = SpaceResolver.ModelName;
 
             public List<string>? Capas { get; set; }
@@ -132,7 +135,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         /// Resultado de la lectura. <see cref="Ids"/> y <see cref="Candidatos"/> están en el mismo orden: los índices de
         /// <see cref="BorrarPorFiltroRules.Plan.Borrar"/> apuntan a ambos.
         /// </summary>
-        private sealed class Lectura
+        internal sealed class Lectura
         {
             public Lectura(
                 string espacio,
@@ -165,7 +168,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         }
 
         /// <summary>Recuento que se informa: del plan (previsualización) o de lo realmente borrado (escritura).</summary>
-        private sealed class Recuento
+        internal sealed class Recuento
         {
             public Recuento(
                 int nBorrar,
@@ -198,7 +201,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             public static Recuento DelPlan(BorrarPorFiltroRules.Plan plan) =>
                 new Recuento(plan.Borrar.Count, null, plan.PorTipo, plan.PorCapa, plan.NUsuario, plan.Muestra);
 
-            /// <summary>Lo realmente borrado: los candidatos de <paramref name="indices"/>.</summary>
+            /// <summary>Lo realmente borrado (o movido): los candidatos de <paramref name="indices"/>.</summary>
             public static Recuento DeBorrado(Lectura l, List<int> indices)
             {
                 var porTipo = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -235,6 +238,15 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         private static Params Parse(JsonElement p)
         {
             ParamReader.RequireObject(p, Allowed);
+            return ParseFiltros(p, "borra", "borraron");
+        }
+
+        /// <summary>
+        /// espacio, capas, tipos, bbox, modo_bbox, confirmar y n_esperado (sin AutoCAD y sin comprobar parámetros extra:
+        /// el llamador hace RequireObject). <paramref name="accion"/> y <paramref name="plural"/> ajustan los mensajes.
+        /// </summary>
+        internal static Params ParseFiltros(JsonElement p, string accion, string plural)
+        {
             string? espacio = ParamReader.OptionalString(p, "espacio", 1, 255);
             List<string>? capas = ParamReader.OptionalStringArray(p, "capas", 1, 100, 1);
             List<string>? tipos = ParamReader.OptionalStringArray(p, "tipos", 1, 50, 1);
@@ -247,7 +259,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 throw ToolException.InvalidParams("n_esperado: solo aplica con confirmar: true");
             }
 
-            string? error = BorrarPorFiltroRules.ValidateFilters(capas, tipos != null, bbox.HasValue, modo);
+            string? error = BorrarPorFiltroRules.ValidateFilters(capas, tipos != null, bbox.HasValue, modo, accion);
             if (error != null)
             {
                 throw ToolException.InvalidParams(error);
@@ -262,6 +274,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 ModoBbox = EntityFilter.NormalizeBboxMode(modo),
                 Confirmar = confirmar,
                 NEsperado = nEsperado,
+                Plural = plural,
             };
         }
 
@@ -315,7 +328,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
         // ------------------------------------------------------------------ lectura
 
-        private static Lectura Read(Database db, Transaction tr, Params p, List<string> warnings)
+        internal static Lectura Read(Database db, Transaction tr, Params p, List<string> warnings)
         {
             SpaceResolver.ResolvedSpace space = SpaceResolver.Resolve(db, tr, p.Espacio);
             if (!space.Btr.IsLayout)
@@ -409,7 +422,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             BorrarPorFiltroRules.Plan plan = BorrarPorFiltroRules.Build(candidatos);
             if (ilegibles > 0)
             {
-                warnings.Add(ilegibles.ToString(CultureInfo.InvariantCulture) + " entidad(es) del espacio no se pudieron leer y no se borraron.");
+                warnings.Add(ilegibles.ToString(CultureInfo.InvariantCulture) + " entidad(es) del espacio no se pudieron leer y no se " + p.Plural + ".");
             }
 
             int frozen = EntityProtection.CountFrozenOrOff(plan.InfoBorrar);
@@ -471,7 +484,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         }
 
         /// <summary>Capa que no se puede tocar en el momento de escribir: ilegible, bloqueada, xref o dependiente.</summary>
-        private static bool CapaProtegida(Transaction tr, ObjectId layerId)
+        internal static bool CapaProtegida(Transaction tr, ObjectId layerId)
         {
             var ltr = tr.GetObject(layerId, OpenMode.ForRead, false) as LayerTableRecord;
             return ltr == null || ltr.IsLocked || ltr.IsDependent || ltr.Name.IndexOf('|') >= 0;

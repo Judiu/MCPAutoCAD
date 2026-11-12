@@ -359,7 +359,7 @@ def _requests(world: World, method: str, pid: int = 18244) -> list[dict[str, Any
 def test_protocol_version_del_servidor() -> None:
     assert PROTOCOL_VERSION == "0.8"
     assert mcp_autocad.PROTOCOL_VERSION == "0.8"
-    assert mcp_autocad.__version__ == "0.8.6"
+    assert mcp_autocad.__version__ == "0.8.7"
     assert len(MANIFEST_ORDER) == 56
 
 

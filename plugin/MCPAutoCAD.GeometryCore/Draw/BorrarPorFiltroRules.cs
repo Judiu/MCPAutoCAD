@@ -93,12 +93,13 @@ namespace MCPAutoCAD.GeometryCore.Draw
         /// obligatorio; 'dentro' exige bbox; un filtro de capas que coincide con todas las capas (todos sus patrones son
         /// universales) sin tipos ni bbox se rechaza. Devuelve el <c>detalle</c> de INVALID_PARAMS o null.
         /// </summary>
-        public static string? ValidateFilters(IReadOnlyList<string>? capas, bool hasTipos, bool hasBbox, string? modoBbox)
+        public static string? ValidateFilters(
+            IReadOnlyList<string>? capas, bool hasTipos, bool hasBbox, string? modoBbox, string accion = "borra")
         {
             bool hasCapas = capas != null;
             if (!hasCapas && !hasTipos && !hasBbox)
             {
-                return "capas, tipos o bbox: al menos uno es obligatorio (no se borra el espacio entero por omisión)";
+                return "capas, tipos o bbox: al menos uno es obligatorio (no se " + accion + " el espacio entero por omisión)";
             }
 
             if (hasBbox && modoBbox == null)
@@ -149,9 +150,10 @@ namespace MCPAutoCAD.GeometryCore.Draw
 
         /// <summary>
         /// n_esperado (con confirmar: true): null si no se pasó o coincide con <paramref name="nBorrar"/>; si no, el detalle
-        /// de INVALID_PARAMS (el filtro cambió desde la previsualización; no se borra nada).
+        /// de INVALID_PARAMS (el filtro cambió desde la previsualización; no se borra nada). <paramref name="participio"/> =
+        /// "borró" (borrar_por_filtro) o "movió" (mover_por_filtro).
         /// </summary>
-        public static string? CheckExpected(int? esperado, int nBorrar)
+        public static string? CheckExpected(int? esperado, int nBorrar, string participio = "borró")
         {
             if (esperado == null || esperado.Value == nBorrar)
             {
@@ -160,9 +162,10 @@ namespace MCPAutoCAD.GeometryCore.Draw
 
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "la previsualización mostró {0}, ahora coinciden {1}; no se borró nada: repita la previsualización",
+                "la previsualización mostró {0}, ahora coinciden {1}; no se {2} nada: repita la previsualización",
                 esperado.Value,
-                nBorrar);
+                nBorrar,
+                participio);
         }
 
         /// <summary>

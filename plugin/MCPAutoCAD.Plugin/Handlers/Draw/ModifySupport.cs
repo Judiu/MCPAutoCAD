@@ -52,18 +52,22 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         /// <summary>Parámetros comunes leídos.</summary>
         internal sealed class Common
         {
-            public Common(List<string> handles, bool confirmar, bool forzar, bool aceptarSinUnidades)
+            public Common(List<string> handles, bool confirmar, bool forzar, bool aceptarSinUnidades, bool permitirOrigenBloqueado = false)
             {
                 Handles = handles;
                 Confirmar = confirmar;
                 Forzar = forzar;
                 AceptarSinUnidades = aceptarSinUnidades;
+                PermitirOrigenBloqueado = permitirOrigenBloqueado;
             }
 
             public List<string> Handles { get; }
             public bool Confirmar { get; }
             public bool Forzar { get; }
             public bool AceptarSinUnidades { get; }
+
+            /// <summary>Fallo 43: solo copiar. Admite entidades de origen en capa bloqueada (no se modifican).</summary>
+            public bool PermitirOrigenBloqueado { get; }
         }
 
         /// <summary>
@@ -71,7 +75,11 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         /// (fragmento JSON sin llaves, terminado sin coma, o "" si no hay), <paramref name="ownRequired"/> = obligatorias
         /// propias (handles siempre lo es).
         /// </summary>
-        public static JsonElement BuildSchema(string ownProperties, params string[] ownRequired)
+        public static JsonElement BuildSchema(string ownProperties, params string[] ownRequired) =>
+            BuildSchemaConHandles(SchemaHandles, ownProperties, ownRequired);
+
+        /// <summary>Como <see cref="BuildSchema"/> con una descripción propia de handles (copiar, fallo 43).</summary>
+        public static JsonElement BuildSchemaConHandles(string schemaHandles, string ownProperties, params string[] ownRequired)
         {
             var required = new List<string> { "\"handles\"" };
             foreach (string r in ownRequired)
@@ -81,7 +89,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
             string own = string.IsNullOrWhiteSpace(ownProperties) ? "" : ownProperties + ",\n";
             string json = "{\n  \"type\": \"object\",\n  \"properties\": {\n" + own
-                + "    \"handles\": " + SchemaHandles + ",\n"
+                + "    \"handles\": " + schemaHandles + ",\n"
                 + "    \"confirmar\": " + SchemaConfirmar + ",\n"
                 + "    \"forzar\": " + DrawWrite.SchemaForzar + ",\n"
                 + "    \"aceptar_sin_unidades\": " + DrawWrite.SchemaAceptarSinUnidades + "\n"
@@ -182,6 +190,11 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 throw new ArgumentException("matriz obligatoria salvo en borrar", nameof(matrix));
             }
 
+            if (c.PermitirOrigenBloqueado && op != Operation.Copy)
+            {
+                throw new ArgumentException("permitir_origen_bloqueado solo aplica a copiar", nameof(c));
+            }
+
             Document doc = ctx.RequireDocument();
             Database db = doc.Database;
             List<string> warnings = AcadUtil.UnitWarnings(db);
@@ -193,8 +206,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             var boxes = new List<BBox2>(c.Handles.Count);
             using (Transaction tr = db.TransactionManager.StartOpenCloseTransaction())
             {
-                HandleGuard.Resolved first = HandleGuard.Resolve(db, tr, c.Handles, c.Confirmar, warnings);
+                HandleGuard.Resolved first = HandleGuard.Resolve(db, tr, c.Handles, c.Confirmar, warnings, c.PermitirOrigenBloqueado);
                 espacio = first.Espacio;
+                AvisoOrigenBloqueado(tr, first, c, warnings);
                 if (boxTransform != null)
                 {
                     foreach (HandleGuard.Item item in first.Items)
@@ -235,7 +249,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 // Segunda resolución: sus advertencias ya se dieron en la pasada de lectura (lista desechable).
-                HandleGuard.Resolved res = HandleGuard.Resolve(db, tr, c.Handles, c.Confirmar, new List<string>());
+                HandleGuard.Resolved res = HandleGuard.Resolve(db, tr, c.Handles, c.Confirmar, new List<string>(), c.PermitirOrigenBloqueado);
 
                 var handles = new List<string>(res.Items.Count);
                 List<string>? origen = null;
@@ -326,13 +340,49 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                     throw new InvalidOperationException("copiar: AutoCAD no clonó la entidad " + item.Info.Handle + ".");
                 }
 
-                var clone = (Entity)tr.GetObject(pair.Value, OpenMode.ForWrite);
+                // forceOpenOnLockedLayer: con permitir_origen_bloqueado el clon nace en la capa bloqueada del origen
+                // (fallo 43); sin él no hay capas bloqueadas aquí (HandleGuard las rechazó) y el parámetro no cambia nada.
+                var clone = (Entity)tr.GetObject(pair.Value, OpenMode.ForWrite, false, true);
                 clone.TransformBy(m);
                 created.Add(AcadUtil.HandleToString(clone.Handle));
                 origen.Add(item.Info.Handle);
             }
 
             return created;
+        }
+
+        /// <summary>
+        /// Fallo 43: con permitir_origen_bloqueado, avisa de cuántas copias quedarán en capas bloqueadas y cuáles; después
+        /// el puente no puede moverlas ni borrarlas hasta desbloquear la capa (estado_capas bloqueada: false).
+        /// </summary>
+        private static void AvisoOrigenBloqueado(Transaction tr, HandleGuard.Resolved res, Common c, List<string> warnings)
+        {
+            if (!c.PermitirOrigenBloqueado)
+            {
+                return;
+            }
+
+            int n = 0;
+            var capas = new List<string>();
+            var vistas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (HandleGuard.Item item in res.Items)
+            {
+                if (tr.GetObject(item.Entity.LayerId, OpenMode.ForRead, false) is LayerTableRecord ltr && ltr.IsLocked)
+                {
+                    n++;
+                    if (vistas.Add(ltr.Name) && capas.Count < 5)
+                    {
+                        capas.Add(ltr.Name);
+                    }
+                }
+            }
+
+            if (n > 0)
+            {
+                warnings.Add(n.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    + " copia(s) quedarán en capa(s) bloqueada(s) (" + string.Join(", ", capas) + (vistas.Count > capas.Count ? ", ..." : "")
+                    + "): para moverlas o borrarlas después, desbloquee con estado_capas (bloqueada: false).");
+            }
         }
 
         /// <summary>Vector de AutoCAD a partir de un Point3 de GeometryCore.</summary>

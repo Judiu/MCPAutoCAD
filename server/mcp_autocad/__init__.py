@@ -4,7 +4,7 @@ Traduce herramientas MCP a JSON-RPC 2.0 sobre el named pipe del plugin
 (ver protocol.md). No contiene lógica CAD.
 """
 
-__version__ = "0.8.6"
+__version__ = "0.8.7"
 PROTOCOL_VERSION = "0.8"
 
 __all__ = ["__version__", "PROTOCOL_VERSION"]

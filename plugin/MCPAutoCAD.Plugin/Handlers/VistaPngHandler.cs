@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Autodesk.AutoCAD.ApplicationServices;
@@ -51,7 +52,7 @@ namespace MCPAutoCAD.Plugin.Handlers
             "vista_png solo puede capturar el espacio activo (" + activo + "); el usuario debe cambiar a la pestaña '"
             + pedido + "' o se debe omitir 'espacio'.";
 
-        private static readonly string[] Allowed = { "bbox", "ancho", "alto", "mecanismo", "espacio", "ajustar_aspecto" };
+        private static readonly string[] Allowed = { "bbox", "ancho", "alto", "mecanismo", "espacio", "ajustar_aspecto", "recortar" };
 
         public string Name => "vista_png";
 
@@ -61,7 +62,8 @@ namespace MCPAutoCAD.Plugin.Handlers
             "bbox captura la vista actual en pantalla; con bbox [[xmin,ymin],[xmax,ymax]] (WCS) plotea esa zona (con " +
             "ajustar_aspecto: true, ampliada al aspecto ancho:alto; false, el bbox exacto). Solo captura el espacio activo " +
             "(la pestaña abierta por el usuario) y nunca cambia de pestaña: si 'espacio' indica otro, devuelve " +
-            "INVALID_PARAMS. La respuesta incluye bbox_real (zona WCS que cubre la imagen) y unidades_por_pixel, para " +
+            "INVALID_PARAMS. Con plot, la hoja del PC3 se recorta a la ventana trazada (recortar: true por defecto), así una " +
+            "zona alargada no trae márgenes blancos. La respuesta incluye bbox_real (zona WCS que cubre la imagen) y unidades_por_pixel, para " +
             "pasar de píxel a coordenada. Úsela para revisar visualmente; los números se verifican con las demás herramientas.";
 
         public bool RequiresDocument => true;
@@ -88,7 +90,8 @@ namespace MCPAutoCAD.Plugin.Handlers
     ""alto"": { ""type"": ""integer"", ""minimum"": 64, ""maximum"": 2048, ""default"": 768, ""description"": ""Alto de la imagen en píxeles."" },
     ""mecanismo"": { ""type"": ""string"", ""enum"": [""auto"", ""captura"", ""plot""], ""default"": ""auto"", ""description"": ""auto (defecto): sin bbox, captura nativa de la pantalla (si falla, plot); con bbox, siempre plot. captura: solo la API gráfica (sin bbox). plot: PublishToWeb PNG, tamaños fijos del PC3 (ancho/alto reales pueden diferir). Siempre sobre el espacio activo."" },
     ""espacio"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 255, ""description"": ""'modelo' o nombre de un layout; debe ser el espacio activo (AutoCAD solo plotea el layout actual y la herramienta no cambia de pestaña). Si es otro, INVALID_PARAMS: pida al usuario que cambie a esa pestaña u omita 'espacio'. Defecto: espacio activo."" },
-    ""ajustar_aspecto"": { ""type"": ""boolean"", ""default"": true, ""description"": ""Solo con bbox. true (defecto): la ventana se amplía al aspecto ancho:alto pedido; la caja pedida nunca se recorta y puede haber márgenes. false: la ventana es exactamente el bbox y la hoja pedida tiene el aspecto del bbox (ancho y alto fijan solo el tamaño máximo). En ambos casos la zona real está en bbox_real."" }
+    ""ajustar_aspecto"": { ""type"": ""boolean"", ""default"": true, ""description"": ""Solo con bbox. true (defecto): la ventana se amplía al aspecto ancho:alto pedido; la caja pedida nunca se recorta y puede haber márgenes. false: la ventana es exactamente el bbox y la hoja pedida tiene el aspecto del bbox (ancho y alto fijan solo el tamaño máximo). En ambos casos la zona real está en bbox_real."" },
+    ""recortar"": { ""type"": ""boolean"", ""default"": true, ""description"": ""Solo con plot. true (defecto): la hoja del PC3 (tamaños fijos) se recorta a la ventana trazada y se quitan los márgenes blancos; ancho y alto reales pueden ser menores que los pedidos. false: la hoja completa, con márgenes."" }
   },
   ""additionalProperties"": false
 }");
@@ -102,7 +105,8 @@ namespace MCPAutoCAD.Plugin.Handlers
     ""ancho"": { ""type"": ""integer"" },
     ""alto"": { ""type"": ""integer"" },
     ""bbox"": { ""type"": ""array"", ""items"": { ""type"": ""array"", ""items"": { ""type"": ""number"" } }, ""description"": ""Ventana de trazado (WCS) pedida o ampliada; la zona que realmente cubre la imagen está en bbox_real."" },
-    ""bbox_real"": { ""type"": [""array"", ""null""], ""items"": { ""type"": ""array"", ""items"": { ""type"": ""number"" } }, ""description"": ""Zona WCS exacta [[xmin, ymin], [xmax, ymax]] que cubre la imagen devuelta (incluye los márgenes de la hoja). Con mecanismo captura es aproximada (advertencia)."" },
+    ""bbox_real"": { ""type"": [""array"", ""null""], ""items"": { ""type"": ""array"", ""items"": { ""type"": ""number"" } }, ""description"": ""Zona WCS exacta [[xmin, ymin], [xmax, ymax]] que cubre la imagen devuelta (con recortar: false incluye los márgenes de la hoja). Con mecanismo captura es aproximada (advertencia)."" },
+    ""recortada"": { ""type"": ""boolean"", ""description"": ""true si la hoja del PC3 se recortó a la ventana trazada."" },
     ""unidades_por_pixel"": { ""type"": [""number"", ""null""], ""description"": ""Unidades de dibujo (ver 'unidades') por píxel de la imagen, uniforme en X e Y: x_wcs = xmin + px × unidades_por_pixel; y_wcs = ymax − py × unidades_por_pixel."" },
     ""mecanismo"": { ""type"": ""string"", ""enum"": [""captura"", ""plot""] },
     ""espacio"": { ""type"": ""string"", ""enum"": [""modelo"", ""papel""] },
@@ -124,6 +128,7 @@ namespace MCPAutoCAD.Plugin.Handlers
             ReadMechanism(parameters);
             ParamReader.OptionalString(parameters, "espacio", 1, 255);
             ParamReader.OptionalBool(parameters, "ajustar_aspecto");
+            ParamReader.OptionalBool(parameters, "recortar");
         }
 
         /// <summary>Texto exacto de §5B.7 para una captura de espacio papel (sustituye al de 0.3.0).</summary>
@@ -138,6 +143,7 @@ namespace MCPAutoCAD.Plugin.Handlers
             string mechanism = ReadMechanism(parameters);
             string? espacio = ParamReader.OptionalString(parameters, "espacio", 1, 255);
             bool ajustar = ParamReader.OptionalBool(parameters, "ajustar_aspecto") ?? true;
+            bool recortar = ParamReader.OptionalBool(parameters, "recortar") ?? true;
 
             Document doc = ctx.RequireDocument();
             Database db = doc.Database;
@@ -165,7 +171,7 @@ namespace MCPAutoCAD.Plugin.Handlers
             int warnWidth = width;
             int warnHeight = height;
             object Finish(ViewCapture.Result img, string used, ViewWindow? win) =>
-                BuildResult(ctx.Pid, db, img, used, win, capturedPaper, layoutName, warnings, sw, warnWidth, warnHeight);
+                BuildResult(ctx.Pid, db, img, used, win, capturedPaper, layoutName, warnings, sw, warnWidth, warnHeight, recortar);
 
             // Errores del trazado directo (bbox o mecanismo 'plot'): mismo mapeo que antes de 0.4 (F5 / FromAcad).
             Exception MapDirectPlotError(Exception ex) => MapPlotError(ex, layoutName, activeLabel, espacio);
@@ -368,9 +374,34 @@ namespace MCPAutoCAD.Plugin.Handlers
         /// <summary>Respuesta de §5B.7 (común a captura y plot). Añade la advertencia de espacio papel.</summary>
         private static object BuildResult(
             int pid, Database db, ViewCapture.Result image, string usedMechanism, ViewWindow? window, bool capturedPaper,
-            string layoutName, List<string> warnings, Stopwatch sw, int requestedWidth, int requestedHeight)
+            string layoutName, List<string> warnings, Stopwatch sw, int requestedWidth, int requestedHeight, bool recortar)
         {
             const bool viewRestored = true;
+
+            // Fallo 46: la hoja del PC3 tiene tamaño fijo; con plot se recorta a la ventana trazada (sin márgenes blancos).
+            bool recortada = false;
+            if (recortar && usedMechanism == Plot && window.HasValue && image.Coverage != null)
+            {
+                CropRect? rect = PlotCoverage.CropToWindow(image.Coverage, window.Value, image.Width, image.Height);
+                if (rect == null && HayMargen(image.Coverage, window.Value))
+                {
+                    // Re-auditoría R2: había márgenes pero la escala de la zona no cuadra con el PNG; no se recorta a ciegas.
+                    PluginLog.Info("vista_png: recorte omitido (escala X/Y de la zona no coincide con el PNG " + image.Width.ToString(CultureInfo.InvariantCulture)
+                        + "x" + image.Height.ToString(CultureInfo.InvariantCulture) + ").");
+                    warnings.Add("No se recortaron los márgenes: la escala de la hoja no coincide con la imagen; se devuelve la hoja completa (bbox_real la describe).");
+                }
+
+                if (rect != null)
+                {
+                    ViewCapture.Result? cortada = Recortar(image, rect, warnings);
+                    if (cortada != null)
+                    {
+                        image = cortada;
+                        recortada = true;
+                    }
+                }
+            }
+
             if (capturedPaper)
             {
                 warnings.Add(PaperSpaceWarning(layoutName));
@@ -392,7 +423,17 @@ namespace MCPAutoCAD.Plugin.Handlers
                 warnings.Add("bbox_real no disponible: no se pudo calcular la zona cubierta por la imagen (bbox_real = null).");
             }
 
-            if (requestedWidth != image.Width || requestedHeight != image.Height)
+            if (recortada)
+            {
+                if (requestedWidth != image.Width || requestedHeight != image.Height)
+                {
+                    warnings.Add(
+                        "La imagen mide " + image.Width.ToString(CultureInfo.InvariantCulture) + "×" + image.Height.ToString(CultureInfo.InvariantCulture)
+                        + " px (hoja pedida " + requestedWidth.ToString(CultureInfo.InvariantCulture) + "×" + requestedHeight.ToString(CultureInfo.InvariantCulture)
+                        + "): la hoja del PC3 se recortó a la ventana trazada. bbox_real indica la zona que cubre.");
+                }
+            }
+            else if (requestedWidth != image.Width || requestedHeight != image.Height)
             {
                 warnings.Add(
                     "La imagen mide " + image.Width.ToString(CultureInfo.InvariantCulture) + "×" + image.Height.ToString(CultureInfo.InvariantCulture)
@@ -420,10 +461,58 @@ namespace MCPAutoCAD.Plugin.Handlers
                 espacio = capturedPaper ? "papel" : "modelo",
                 layout = layoutName,
                 vista_restaurada = viewRestored,
+                recortada,
                 insunits = ins,
                 unidades = UnitsTable.Name(ins),
                 advertencias = warnings,
             };
+        }
+
+        /// <summary>true si la zona de la hoja excede la ventana en más del margen mínimo de recorte en algún eje.</summary>
+        private static bool HayMargen(ImageCoverage c, ViewWindow w)
+        {
+            double upp = c.UnitsPerPixel;
+            if (!(upp > 0))
+            {
+                return false;
+            }
+
+            double extraX = ((c.XMax - c.XMin) - w.Width) / upp;
+            double extraY = ((c.YMax - c.YMin) - w.Height) / upp;
+            // +2: CropToWindow redondea hacia fuera (hasta 1 px por lado); por debajo, el null es por margen pequeño, no por escala.
+            return extraX >= 2 * PlotCoverage.MinCropMarginPx + 2 || extraY >= 2 * PlotCoverage.MinCropMarginPx + 2;
+        }
+
+        /// <summary>
+        /// Fallo 46: recorta el PNG a <paramref name="rect"/> (píxeles, origen arriba a la izquierda) y devuelve la imagen
+        /// nueva con su zona WCS. Si el PNG no tiene el tamaño declarado o falla la decodificación, devuelve null (se
+        /// devuelve la hoja completa) y lo advierte.
+        /// </summary>
+        private static ViewCapture.Result? Recortar(ViewCapture.Result image, CropRect rect, List<string> warnings)
+        {
+            try
+            {
+                using var entrada = new MemoryStream(image.Png);
+                using var hoja = new System.Drawing.Bitmap(entrada);
+                if (hoja.Width != image.Width || hoja.Height != image.Height
+                    || rect.X + rect.Width > hoja.Width || rect.Y + rect.Height > hoja.Height)
+                {
+                    warnings.Add("No se recortó la imagen: el PNG no tiene el tamaño esperado; se devuelve la hoja completa.");
+                    return null;
+                }
+
+                using System.Drawing.Bitmap recorte = hoja.Clone(
+                    new System.Drawing.Rectangle(rect.X, rect.Y, rect.Width, rect.Height), hoja.PixelFormat);
+                using var salida = new MemoryStream();
+                recorte.Save(salida, System.Drawing.Imaging.ImageFormat.Png);
+                return new ViewCapture.Result(salida.ToArray(), rect.Width, rect.Height, image.Api) { Coverage = rect.Coverage };
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is OutOfMemoryException || ex is System.Runtime.InteropServices.ExternalException)
+            {
+                PluginLog.Warn("vista_png: recorte fallido (" + ex.GetType().Name + ": " + ex.Message + "); se devuelve la hoja completa.");
+                warnings.Add("No se pudo recortar la imagen (" + ex.GetType().Name + "); se devuelve la hoja completa.");
+                return null;
+            }
         }
 
         /// <summary>

@@ -275,14 +275,14 @@ def error_lote(funcion: Any, *args: Any) -> str:
 
 def test_versiones_0_8() -> None:
     # Servidor 0.8.2 (respaldo accoreconsole, umbrales de unidad, plazo 300 s); el plugin y el protocolo siguen en 0.8.0 / "0.8".
-    assert (mcp_autocad.__version__, mcp_autocad.PROTOCOL_VERSION) == ("0.8.6", "0.8")
+    assert (mcp_autocad.__version__, mcp_autocad.PROTOCOL_VERSION) == ("0.8.7", "0.8")
     assert server_mod.PROTOCOL_VERSION == "0.8"
     assert (fake_plugin.FAKE_PLUGIN_VERSION, fake_plugin.FAKE_PROTOCOL_VERSION) == ("0.8.0", "0.8")
 
 
 def test_pyproject_0_8_con_ezdxf_opcional() -> None:
     texto = (RAIZ / "server" / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'version = "0.8.6"' in texto
+    assert 'version = "0.8.7"' in texto
     assert '[project.optional-dependencies]' in texto and 'oda = ["ezdxf>=1.4"]' in texto
 
 

@@ -31,6 +31,30 @@ namespace MCPAutoCAD.GeometryCore
         public double[][] ToBbox2D() => new[] { new[] { XMin, YMin }, new[] { XMax, YMax } };
     }
 
+    /// <summary>Recorte de <see cref="PlotCoverage.CropToWindow"/>: píxeles (origen arriba a la izquierda) y zona WCS.</summary>
+    public sealed class CropRect
+    {
+        public CropRect(int x, int y, int width, int height, ImageCoverage coverage)
+        {
+            X = x;
+            Y = y;
+            Width = width;
+            Height = height;
+            Coverage = coverage;
+        }
+
+        public int X { get; }
+
+        public int Y { get; }
+
+        public int Width { get; }
+
+        public int Height { get; }
+
+        /// <summary>Zona WCS que cubre la imagen recortada (bbox_real).</summary>
+        public ImageCoverage Coverage { get; }
+    }
+
     /// <summary>
     /// Cálculo puro de vista_png (protocol.md §5B.7) para el mecanismo "plot" con PublishToWeb PNG, cuyo papel tiene
     /// tamaños fijos del PC3. El trazado ajusta la ventana a la hoja (ScaleToFit) y centra: la escala es
@@ -66,6 +90,71 @@ namespace MCPAutoCAD.GeometryCore
                 window.CenterY + halfH,
                 1.0 / scale);
         }
+
+        /// <summary>Margen mínimo (px por lado) para que <see cref="CropToWindow"/> recorte; por debajo no compensa.</summary>
+        public const int MinCropMarginPx = 3;
+
+        /// <summary>Diferencia relativa máxima admitida entre la escala declarada y la de cada eje para recortar.</summary>
+        public const double MaxScaleMismatch = 0.005;
+
+        /// <summary>
+        /// Fallo 46: rectángulo de píxeles (origen arriba a la izquierda) de una imagen de <paramref name="pixelWidth"/>×
+        /// <paramref name="pixelHeight"/> px que cubre <paramref name="coverage"/>, recortado a la ventana de trazado
+        /// <paramref name="window"/> (redondeo hacia fuera: la ventana nunca se recorta). Devuelve null si la ventana ya
+        /// ocupa la imagen (márgenes menores que <see cref="MinCropMarginPx"/> en ambos ejes) o los datos no son válidos.
+        /// La zona del recorte se devuelve en <see cref="CropRect.Coverage"/> (misma escala).
+        /// </summary>
+        public static CropRect? CropToWindow(ImageCoverage coverage, ViewWindow window, int pixelWidth, int pixelHeight)
+        {
+            if (coverage == null || pixelWidth <= 0 || pixelHeight <= 0)
+            {
+                return null;
+            }
+
+            double upp = coverage.UnitsPerPixel;
+            if (!(upp > 0) || double.IsInfinity(upp) || !(window.Width > 0) || !(window.Height > 0))
+            {
+                return null;
+            }
+
+            // Auditoría M3: la zona debe tener la misma escala en X y en Y que el PNG; si no (márgenes u orientación del
+            // PC3 mal leídos), recortar cortaría contenido real: se devuelve la hoja completa.
+            double uppX = (coverage.XMax - coverage.XMin) / pixelWidth;
+            double uppY = (coverage.YMax - coverage.YMin) / pixelHeight;
+            if (!(uppX > 0) || !(uppY > 0)
+                || Math.Abs(uppX - upp) > MaxScaleMismatch * upp || Math.Abs(uppY - upp) > MaxScaleMismatch * upp)
+            {
+                return null;
+            }
+
+            // Tolerancia de redondeo: una fracción de píxel no añade una fila/columna.
+            const double eps = 1e-6;
+            int x0 = Clamp((int)Math.Floor((window.XMin - coverage.XMin) / upp + eps), 0, pixelWidth);
+            int x1 = Clamp((int)Math.Ceiling((window.XMax - coverage.XMin) / upp - eps), 0, pixelWidth);
+            int y0 = Clamp((int)Math.Floor((coverage.YMax - window.YMax) / upp + eps), 0, pixelHeight);
+            int y1 = Clamp((int)Math.Ceiling((coverage.YMax - window.YMin) / upp - eps), 0, pixelHeight);
+            if (x1 - x0 < 1 || y1 - y0 < 1)
+            {
+                return null;
+            }
+
+            int margenX = pixelWidth - (x1 - x0);
+            int margenY = pixelHeight - (y1 - y0);
+            if (margenX < 2 * MinCropMarginPx && margenY < 2 * MinCropMarginPx)
+            {
+                return null;
+            }
+
+            var zona = new ImageCoverage(
+                coverage.XMin + x0 * upp,
+                coverage.YMax - y1 * upp,
+                coverage.XMin + x1 * upp,
+                coverage.YMax - y0 * upp,
+                upp);
+            return new CropRect(x0, y0, x1 - x0, y1 - y0, zona);
+        }
+
+        private static int Clamp(int v, int min, int max) => v < min ? min : (v > max ? max : v);
 
         /// <summary>
         /// Zona real de la imagen cuando la hoja tiene márgenes (0.9, punto 4). Papel de <paramref name="paperWidth"/>×

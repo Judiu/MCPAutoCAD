@@ -62,8 +62,12 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         /// 1 NOT_FOUND (data.handle); 2 atributo / dentro de bloque / viewport de papel; 3 capa bloqueada o de xref
         /// (congelada o apagada → advertencia en <paramref name="advertencias"/>); 4 mismo espacio; 5 confirmación si hay
         /// entidades fuera de capas MCP-*. La primera comprobación que falla lanza <see cref="ToolException"/>.
+        /// <paramref name="permitirCapaBloqueada"/> (fallo 43): solo copiar con permitir_origen_bloqueado; el origen no se
+        /// modifica.
         /// </summary>
-        public static Resolved Resolve(Database db, Transaction tr, IReadOnlyList<string> handles, bool confirmar, List<string> advertencias)
+        public static Resolved Resolve(
+            Database db, Transaction tr, IReadOnlyList<string> handles, bool confirmar, List<string> advertencias,
+            bool permitirCapaBloqueada = false)
         {
             // Paso 1: todos los handles existen y son entidades.
             var entities = new List<(ObjectId id, Entity e)>(handles.Count);
@@ -90,7 +94,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             }
 
             // Pasos 2–4 (lógica pura).
-            ProtectionError? error = EntityProtection.Classify(infos);
+            ProtectionError? error = EntityProtection.Classify(infos, permitirCapaBloqueada);
             if (error != null)
             {
                 var data = new Dictionary<string, object?>();

@@ -168,7 +168,7 @@ def test_33_herramientas_de_escritura() -> None:
 
 
 def test_versiones_0_8() -> None:
-    assert (mcp_autocad.__version__, mcp_autocad.PROTOCOL_VERSION) == ("0.8.6", "0.8")
+    assert (mcp_autocad.__version__, mcp_autocad.PROTOCOL_VERSION) == ("0.8.7", "0.8")
     assert (fake_plugin.FAKE_PLUGIN_VERSION, fake_plugin.FAKE_PROTOCOL_VERSION) == ("0.8.0", "0.8")
 
 

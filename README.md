@@ -4,7 +4,7 @@ Puente para que Claude (Claude Code, Claude Desktop u otro cliente MCP) lea, aud
 en AutoCAD. Pensado para la oficina de LPS Ingeniería Estructural (estándar de capas y rótulo propios, textos en
 español), pero el puente es genérico.
 
-**Versión actual:** plugin **0.10.1** (86 herramientas, protocolo 0.8) · servidor **0.8.6** (5 herramientas propias).
+**Versión actual:** plugin **0.10.4** (93 herramientas, protocolo 0.8) · servidor **0.8.7** (5 herramientas propias).
 Compatible con **AutoCAD 2026** (serie R25.1) y **AutoCAD 2027** (R26.0). El contrato entre plugin y servidor es
 `protocol.md`.
 
