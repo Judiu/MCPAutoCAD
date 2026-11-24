@@ -28,6 +28,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
         public const string SchemaUnidadesModelo =
             @"{ ""type"": ""string"", ""enum"": [""m"", ""cm"", ""mm""], ""description"": ""Unidades del espacio modelo cuando el dibujo no las declara (INSUNITS = 0). Si el dibujo sí las declara y no coinciden → INVALID_PARAMS."" }";
 
+        public const string SchemaUnidadesPapel =
+            @"{ ""type"": ""string"", ""enum"": [""mm"", ""m""], ""description"": ""Unidades reales del espacio papel del layout ('mm' o 'm'; por defecto se deducen de la configuración de página). Indique 'm' si el marco y rótulo del layout están dibujados en metros."" }";
+
         public const string SchemaVentanaModelo =
             @"{ ""type"": ""array"", ""minItems"": 2, ""maxItems"": 2, ""items"": { ""type"": ""array"", ""minItems"": 2, ""maxItems"": 3, ""items"": { ""type"": ""number"" } }, ""description"": ""Zona del modelo a mostrar [[xmin, ymin], [xmax, ymax]] (WCS). El viewport mide exactamente esta zona a la escala pedida."" }";
 
@@ -99,6 +102,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
         /// <summary>Lee 'unidades_modelo' si está.</summary>
         public static string? ReadModelUnits(JsonElement p) => ParamReader.OptionalEnum(p, "unidades_modelo", ViewportPlanner.ModelUnitNames);
 
+        /// <summary>Lee 'unidades_papel' ('mm' | 'm') si está (fallo 48).</summary>
+        public static string? ReadPaperUnits(JsonElement p) => ParamReader.OptionalEnum(p, "unidades_papel", ViewportPlanner.PaperUnitNames);
+
         /// <summary>Metros por unidad de modelo (INSUNITS o unidades_modelo) o INVALID_PARAMS con el motivo.</summary>
         public static double ModelMeters(Database db, string? unidadesModelo)
         {
@@ -114,14 +120,26 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
         }
 
         /// <summary>mm reales de papel por unidad de espacio papel del layout, o INVALID_PARAMS si no se puede saber.</summary>
-        public static double PaperMm(Layout layout)
+        public static double PaperMm(Layout layout) => PaperMm(layout, null);
+
+        /// <summary>mm reales de papel por unidad de espacio papel: usa <paramref name="unidadesPapel"/> si se indica, o la escala del layout.</summary>
+        public static double PaperMm(Layout layout, string? unidadesPapel)
         {
+            if (unidadesPapel != null)
+            {
+                double? explicitMm = ViewportPlanner.PaperMmForUnit(unidadesPapel);
+                if (explicitMm != null)
+                {
+                    return explicitMm.Value;
+                }
+            }
+
             (double? mm, string descripcion) = ListarLayoutsHandler.PlotScale(layout);
             if (mm == null)
             {
                 throw ToolException.InvalidParams(
                     "escala: el layout '" + layout.LayoutName + "' imprime con escala '" + descripcion
-                    + "' o en píxeles; configure en su configuración de página una escala fija (p. ej. 1:1, en mm) para poder calcular 1:N");
+                    + "' o en píxeles; configure en su configuración de página una escala fija (p. ej. 1:1, en mm) o indique unidades_papel ('mm' o 'm') para poder calcular 1:N");
             }
 
             return mm.Value;

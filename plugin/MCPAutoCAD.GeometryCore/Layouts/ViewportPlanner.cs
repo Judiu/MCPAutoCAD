@@ -61,6 +61,17 @@ namespace MCPAutoCAD.GeometryCore.Layouts
         /// <summary>Valores admitidos de unidades_modelo.</summary>
         public static readonly string[] ModelUnitNames = { "m", "cm", "mm" };
 
+        /// <summary>Valores admitidos de unidades_papel (fallo 48).</summary>
+        public static readonly string[] PaperUnitNames = { "mm", "m" };
+
+        /// <summary>mm reales de papel por unidad de espacio papel: "mm" → 1, "m" → 1000; null si no es uno de ellos.</summary>
+        public static double? PaperMmForUnit(string? name) => name switch
+        {
+            "mm" => 1.0,
+            "m" => 1000.0,
+            _ => null,
+        };
+
         /// <summary>Metros por unidad para "m", "cm" o "mm"; null si no es uno de ellos.</summary>
         public static double? MetersPerModelUnit(string? name) => name switch
         {
@@ -261,6 +272,27 @@ namespace MCPAutoCAD.GeometryCore.Layouts
         /// <summary>true si las cajas se solapan con área (tocarse en un borde no cuenta).</summary>
         public static bool Overlaps(BBox2 a, BBox2 b) =>
             a.Xmin < b.Xmax && b.Xmin < a.Xmax && a.Ymin < b.Ymax && b.Ymin < a.Ymax;
+
+        /// <summary>true si <paramref name="box"/> se sale de <paramref name="limits"/> más allá de <paramref name="tol"/>.</summary>
+        public static bool IsOutsideLimits(BBox2 box, BBox2 limits, double tol = 1e-6) =>
+            box.Xmin < limits.Xmin - tol || box.Ymin < limits.Ymin - tol || box.Xmax > limits.Xmax + tol || box.Ymax > limits.Ymax + tol;
+
+        /// <summary>
+        /// Heurística de detección (fallo 48): true si la hoja está configurada en mm (p. ej. A3 ≥ 100 mm) pero el
+        /// marco/contenido del espacio papel mide entre 0,05 y 5,0 unidades (típico de planos dibujados en metros de papel).
+        /// </summary>
+        public static bool LooksLikeMeterPaper(double contentWidth, double contentHeight, double plotPaperWidthMm, double plotPaperHeightMm)
+        {
+            if (!double.IsFinite(contentWidth) || !double.IsFinite(contentHeight)
+                || !double.IsFinite(plotPaperWidthMm) || !double.IsFinite(plotPaperHeightMm))
+            {
+                return false;
+            }
+
+            double maxContent = Math.Max(contentWidth, contentHeight);
+            double maxPlot = Math.Max(plotPaperWidthMm, plotPaperHeightMm);
+            return maxPlot >= 100.0 && maxContent >= 0.05 && maxContent <= 5.0;
+        }
 
         private static string Fmt(double v) => double.IsFinite(v) ? v.ToString("0.###", CultureInfo.InvariantCulture) : "∞";
     }

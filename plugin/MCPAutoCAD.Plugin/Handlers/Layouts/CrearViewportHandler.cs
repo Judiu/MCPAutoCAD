@@ -22,7 +22,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
     {
         private static readonly string[] Allowed =
         {
-            "layout", "ventana_modelo", "escala", "centro_papel", "capa", "bloquear", "crear_escala_anotacion", "unidades_modelo", "confirmar", "preview",
+            "layout", "ventana_modelo", "escala", "centro_papel", "capa", "bloquear", "crear_escala_anotacion", "unidades_modelo", "unidades_papel", "forzar", "confirmar", "preview",
         };
 
         public string Name => "crear_viewport";
@@ -50,6 +50,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
     ""bloquear"": { ""type"": ""boolean"", ""default"": true, ""description"": ""Bloquear la escala del viewport (evita cambiarla con zoom dentro de él)."" },
     ""crear_escala_anotacion"": { ""type"": ""boolean"", ""default"": true, ""description"": ""Si el dibujo no tiene una escala de anotación equivalente, crearla ('LPS 1:N') en la lista de escalas. false = no tocar la lista; solo se avisa."" },
     ""unidades_modelo"": " + LayoutWrite.SchemaUnidadesModelo + @",
+    ""unidades_papel"": " + LayoutWrite.SchemaUnidadesPapel + @",
+    ""forzar"": { ""type"": ""boolean"", ""default"": false, ""description"": ""true = escribir aunque el viewport salga de los límites del papel del layout; por defecto se rechaza al confirmar."" },
     ""confirmar"": " + CleanWrite.SchemaConfirmar + @",
     ""preview"": " + CleanWrite.SchemaPreview + @"
   },
@@ -89,6 +91,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
             public bool Bloquear;
             public bool CrearEscala = true;
             public string? UnidadesModelo;
+            public string? UnidadesPapel;
+            public bool Forzar;
             public CleanWrite.Common Common = new CleanWrite.Common(false, null);
         }
 
@@ -106,6 +110,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
                 Bloquear = ParamReader.OptionalBool(p, "bloquear") ?? true,
                 CrearEscala = ParamReader.OptionalBool(p, "crear_escala_anotacion") ?? true,
                 UnidadesModelo = LayoutWrite.ReadModelUnits(p),
+                UnidadesPapel = LayoutWrite.ReadPaperUnits(p),
+                Forzar = ParamReader.OptionalBool(p, "forzar") ?? false,
                 Common = CleanWrite.ReadCommon(p),
             };
             Point3 c = ParamReader.RequiredPoint(p, "centro_papel");
@@ -125,7 +131,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
         /// general de papel (nunca activado): el viewport nuevo se confundiría con él (PaperViewportId toma el primero del
         /// registro) y al activarlo AutoCAD puede añadir otro por LAYOUTCREATEVIEWPORT.
         /// </summary>
-        private static (string layout, ViewportGeometry geo, List<string> solapa) Plan(Database db, Transaction tr, Params p, List<string> warnings)
+        private static (string layout, ViewportGeometry geo, List<string> solapa) Plan(
+            Database db, Transaction tr, Params p, bool rejectWhenOutside, List<string> warnings)
         {
             LayoutWrite.Found found = LayoutWrite.FindLayout(db, tr, p.Layout);
             var btr = (BlockTableRecord)tr.GetObject(found.Layout.BlockTableRecordId, OpenMode.ForRead);
@@ -136,11 +143,12 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
             }
 
             double modelMeters = LayoutWrite.ModelMeters(db, p.UnidadesModelo);
-            double paperMm = LayoutWrite.PaperMm(found.Layout);
+            double paperMm = LayoutWrite.PaperMm(found.Layout, p.UnidadesPapel);
+            ViewportPaper.WarnIfMeterPaper(tr, found.Layout, paperMm, p.UnidadesPapel, warnings);
             ViewportGeometry geo = LayoutWrite.Checked(() =>
                 ViewportPlanner.FromWindow(p.Ventana, p.Denominador, paperMm, modelMeters, p.PaperX, p.PaperY));
             List<string> solapa = ViewportPaper.Overlapping(tr, found.Layout, geo.PaperBox, null);
-            ViewportPaper.CheckOnPaper(found.Layout, geo.PaperBox, warnings);
+            ViewportPaper.CheckOnPaper(found.Layout, geo.PaperBox, p.Forzar, rejectWhenOutside, warnings);
             if (solapa.Count > 0)
             {
                 warnings.Add("El viewport se cruza en el papel con " + solapa.Count + " viewport(s) existente(s): " + string.Join(", ", solapa) + ".");
@@ -195,7 +203,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
             string? anotacionPlan;
             using (Transaction tr = db.TransactionManager.StartOpenCloseTransaction())
             {
-                pre = Plan(db, tr, p, preWarnings);
+                pre = Plan(db, tr, p, rejectWhenOutside: mode == CleanWrite.Mode.Write, preWarnings);
                 capaPlan = DrawLayerFactory.Check(db, tr, capaPedida, LayoutWrite.ViewportConcept, out bool _, preWarnings).Nombre;
                 (anotacionPlan, bool crearAnotacion) = ViewportPaper.PlanAnnotationScale(db, pre.geo.CustomScale, p.Denominador, p.CrearEscala);
                 if (anotacionPlan == null && !p.CrearEscala)
@@ -232,7 +240,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
                 using (Transaction tr = wdb.TransactionManager.StartTransaction())
                 {
                     // Se recalcula todo dentro del paso de deshacer (el dibujo pudo cambiar desde la lectura previa).
-                    (string layout, ViewportGeometry geo, List<string> solapa) plan = Plan(wdb, tr, p, warnings);
+                    (string layout, ViewportGeometry geo, List<string> solapa) plan = Plan(wdb, tr, p, rejectWhenOutside: true, warnings);
                     LayoutWrite.Found found = LayoutWrite.FindLayout(wdb, tr, plan.layout);
                     DrawLayerFactory.Result layer = DrawLayerFactory.Ensure(wdb, tr, capaPedida, LayoutWrite.ViewportConcept, warnings);
                     var btr = (BlockTableRecord)tr.GetObject(found.Layout.BlockTableRecordId, OpenMode.ForWrite);
@@ -303,10 +311,61 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
         }
 
         /// <summary>
-        /// Advertencia si la caja se sale de los límites del papel del layout (Layout.Limits, LIMMIN/LIMMAX del espacio
-        /// papel). [Probable] AutoCAD los ajusta a la hoja al aplicar la configuración de página; por eso solo se avisa.
+        /// Fallo 48: avisa si el layout configura la hoja en mm pero sus entidades de papel (marco/rótulo) están en metros.
         /// </summary>
-        public static void CheckOnPaper(Layout layout, BBox2 box, List<string> warnings)
+        public static void WarnIfMeterPaper(
+            Transaction tr, Layout layout, double? paperMm, string? unidadesPapel, List<string> warnings)
+        {
+            if (unidadesPapel != null || !paperMm.HasValue || Math.Abs(paperMm.Value - 1.0) > 1e-6)
+            {
+                return;
+            }
+
+            try
+            {
+                var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                ObjectId paperId = Audit.LayoutViewports.PaperViewportId(tr, btr);
+                BBox2? content = null;
+                foreach (ObjectId id in btr)
+                {
+                    if (id.IsNull || id.IsErased || id == paperId)
+                    {
+                        continue;
+                    }
+
+                    if (tr.GetObject(id, OpenMode.ForRead, false) is Entity ent)
+                    {
+                        BBox2? b = AcadUtil.TryBBox2(ent);
+                        if (b.HasValue)
+                        {
+                            content = content.HasValue ? content.Value.Union(b.Value) : b.Value;
+                        }
+                    }
+                }
+
+                if (content.HasValue
+                    && ViewportPlanner.LooksLikeMeterPaper(
+                        content.Value.Width, content.Value.Height, layout.PlotPaperSize.X, layout.PlotPaperSize.Y))
+                {
+                    warnings.Add(
+                        "El layout '" + layout.LayoutName + "' configura la hoja en mm ("
+                        + Num(layout.PlotPaperSize.X) + "×" + Num(layout.PlotPaperSize.Y)
+                        + " mm) pero su contenido mide " + Num(content.Value.Width) + "×" + Num(content.Value.Height)
+                        + " unidades (parece dibujado en metros de papel): si usa metros, pase unidades_papel: 'm'.");
+                }
+            }
+            catch (Exception)
+            {
+                // Sin comprobación heurística si el bloque no es legible.
+            }
+        }
+
+        /// <summary>
+        /// Comprobación contra los límites del papel del layout (Layout.Limits). Fallo 48: en escritura, si se sale
+        /// de límites y no se pasó forzar: true, rechaza con INVALID_PARAMS antes de escribir ni crear escalas.
+        /// </summary>
+        public static void CheckOnPaper(
+            Layout layout, BBox2 box, bool forzar, bool rejectWhenOutside, List<string> warnings)
         {
             try
             {
@@ -316,13 +375,34 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
                     return;
                 }
 
-                const double tol = 1e-6;
-                if (box.Xmin < lim.MinPoint.X - tol || box.Ymin < lim.MinPoint.Y - tol || box.Xmax > lim.MaxPoint.X + tol || box.Ymax > lim.MaxPoint.Y + tol)
+                BBox2 limits = BBox2.FromCorners(lim.MinPoint.X, lim.MinPoint.Y, lim.MaxPoint.X, lim.MaxPoint.Y);
+                if (!ViewportPlanner.IsOutsideLimits(box, limits, 1e-6))
                 {
-                    warnings.Add(
-                        "El viewport " + Fmt(box) + " se sale de los límites del papel del layout '" + layout.LayoutName + "' "
-                        + Fmt(lim.MinPoint.X, lim.MinPoint.Y, lim.MaxPoint.X, lim.MaxPoint.Y) + ": revise centro_papel, la escala o el tamaño de papel.");
+                    return;
                 }
+
+                string msg = "El viewport " + Fmt(box) + " se sale de los límites del papel del layout '" + layout.LayoutName + "' "
+                    + Fmt(lim.MinPoint.X, lim.MinPoint.Y, lim.MaxPoint.X, lim.MaxPoint.Y)
+                    + ": revise centro_papel, la escala o unidades_papel ('m' si el layout está en metros).";
+                if (rejectWhenOutside && !forzar)
+                {
+                    throw ToolException.InvalidParams(
+                        msg + " Pase forzar: true si desea escribirlo igualmente.",
+                        new Dictionary<string, object?>
+                        {
+                            ["layout"] = layout.LayoutName,
+                            ["caja_papel"] = box.ToArray2D(),
+                            ["limites_papel"] = limits.ToArray2D(),
+                        });
+                }
+
+                warnings.Add(rejectWhenOutside
+                    ? msg + " Escrito con forzar: true."
+                    : msg + (forzar ? "" : " Al confirmar necesitará forzar: true."));
+            }
+            catch (ToolException)
+            {
+                throw;
             }
             catch (Exception)
             {

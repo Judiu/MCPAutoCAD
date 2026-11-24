@@ -20,15 +20,15 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
     internal sealed class ListarLayoutsHandler : IToolHandler
     {
         private const int MaxFrozenListed = 50;
-        private static readonly string[] Allowed = { "incluir_capas_congeladas" };
+        private static readonly string[] Allowed = { "incluir_capas_congeladas", "unidades_papel" };
 
         public string Name => "listar_layouts";
 
         public string Description =>
             "Lista los layouts (pestañas de papel) del dibujo activo en su orden: impresora, papel, tamaño en mm, estilo de " +
             "impresión, rotación y sus viewports (handle, centro y tamaño en papel, ventana de modelo [[xmin,ymin],[xmax,ymax]], " +
-            "escala 1:N si las unidades del dibujo y la escala de impresión del layout lo permiten, bloqueo y capas congeladas en " +
-            "el viewport; 'encendido' solo se informa en el layout actual, en los demás es null). Solo lectura.";
+            "escala 1:N si las unidades del dibujo y del espacio papel lo permiten, bloqueo y capas congeladas en " +
+            "el viewport; 'encendido' es true si AutoCAD lo reporta activo, false si está apagado, o null si el layout no se ha activado en la sesión). Solo lectura.";
 
         public bool RequiresDocument => true;
 
@@ -39,7 +39,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
         public JsonElement InputSchema { get; } = Schema.Parse(@"{
   ""type"": ""object"",
   ""properties"": {
-    ""incluir_capas_congeladas"": { ""type"": ""boolean"", ""default"": true, ""description"": ""Incluir las capas congeladas en cada viewport (máx. 50 por viewport)."" }
+    ""incluir_capas_congeladas"": { ""type"": ""boolean"", ""default"": true, ""description"": ""Incluir las capas congeladas en cada viewport (máx. 50 por viewport)."" },
+    ""unidades_papel"": " + LayoutWrite.SchemaUnidadesPapel + @"
   },
   ""additionalProperties"": false
 }");
@@ -62,11 +63,13 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
         {
             ParamReader.RequireObject(parameters, Allowed);
             ParamReader.OptionalBool(parameters, "incluir_capas_congeladas");
+            LayoutWrite.ReadPaperUnits(parameters);
         }
 
         public object Execute(JsonElement parameters, ExecutionContext ctx)
         {
             bool includeFrozen = ParamReader.OptionalBool(parameters, "incluir_capas_congeladas") ?? true;
+            string? unidadesPapel = LayoutWrite.ReadPaperUnits(parameters);
             Document doc = ctx.RequireDocument();
             Database db = doc.Database;
             int ins = AcadUtil.InsUnits(db);
@@ -90,6 +93,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
                 current = null;
             }
 
+            bool anyUnknownOn = false;
             var rows = new List<(int order, Dictionary<string, object?> row)>();
             using (Transaction tr = db.TransactionManager.StartOpenCloseTransaction())
             {
@@ -101,10 +105,15 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
                         continue;
                     }
 
-                    rows.Add((layout.TabOrder, Describe(layout, tr, modelMeters, includeFrozen, current, warnings)));
+                    rows.Add((layout.TabOrder, Describe(layout, tr, modelMeters, includeFrozen, unidadesPapel, current, warnings, ref anyUnknownOn)));
                 }
 
                 tr.Commit();
+            }
+
+            if (anyUnknownOn)
+            {
+                warnings.Add("Algunos viewports en layouts no activos reportan encendido: null porque AutoCAD no inicializa Viewport.On hasta activar su pestaña; use activar_layout para comprobarlo.");
             }
 
             rows.Sort((a, b) => a.order.CompareTo(b.order));
@@ -184,17 +193,21 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
         }
 
         private static Dictionary<string, object?> Describe(
-            Layout layout, Transaction tr, double? modelMeters, bool includeFrozen, string? current, List<string> warnings)
+            Layout layout, Transaction tr, double? modelMeters, bool includeFrozen, string? unidadesPapel, string? current, List<string> warnings, ref bool anyUnknownOn)
         {
             bool isCurrent = current != null && string.Equals(layout.LayoutName, current, StringComparison.OrdinalIgnoreCase);
             (double? paperMm, string escalaImpresion) = PlotScale(layout);
-            if (layout.PlotPaperUnits == PlotPaperUnit.Pixels)
+            double? effectivePaperMm = ViewportPlanner.PaperMmForUnit(unidadesPapel) ?? paperMm;
+            if (unidadesPapel == null)
             {
-                warnings.Add("Layout '" + layout.LayoutName + "': unidades de papel en píxeles; la escala 1:N de sus viewports no se puede calcular.");
-            }
-            else if (paperMm == null)
-            {
-                warnings.Add("Layout '" + layout.LayoutName + "': escala de impresión " + escalaImpresion + "; la escala 1:N de sus viewports no se puede calcular ni sale exacta al imprimir (configurar_layout: area_impresion 'presentacion' y escala_impresion '1:1' o 'metros').");
+                if (layout.PlotPaperUnits == PlotPaperUnit.Pixels)
+                {
+                    warnings.Add("Layout '" + layout.LayoutName + "': unidades de papel en píxeles; la escala 1:N de sus viewports no se puede calcular.");
+                }
+                else if (paperMm == null)
+                {
+                    warnings.Add("Layout '" + layout.LayoutName + "': escala de impresión " + escalaImpresion + "; la escala 1:N de sus viewports no se puede calcular ni sale exacta al imprimir (configurar_layout: area_impresion 'presentacion' y escala_impresion '1:1' o 'metros').");
+                }
             }
 
             if (layout.PlotType == PlotType.Window)
@@ -204,6 +217,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
 
             var vps = new List<Dictionary<string, object?>>();
             int entities = 0;
+            BBox2? paperContent = null;
             var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
             ObjectId paperId = LayoutViewports.PaperViewportId(tr, btr);
             foreach (ObjectId id in btr)
@@ -214,15 +228,42 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
                 }
 
                 entities++;
-                if (id == paperId || !(tr.GetObject(id, OpenMode.ForRead) is Viewport vp))
+                if (id == paperId)
                 {
                     continue;
                 }
 
-                vps.Add(DescribeViewport(vp, tr, paperMm, modelMeters, includeFrozen, isCurrent));
+                Entity? ent = tr.GetObject(id, OpenMode.ForRead, false) as Entity;
+                if (ent != null)
+                {
+                    BBox2? b = AcadUtil.TryBBox2(ent);
+                    if (b.HasValue)
+                    {
+                        paperContent = paperContent.HasValue ? paperContent.Value.Union(b.Value) : b.Value;
+                    }
+                }
+
+                if (ent is Viewport vp)
+                {
+                    Dictionary<string, object?> vpRow = DescribeViewport(vp, tr, effectivePaperMm, modelMeters, includeFrozen, isCurrent);
+                    if (vpRow["encendido"] == null)
+                    {
+                        anyUnknownOn = true;
+                    }
+
+                    vps.Add(vpRow);
+                }
             }
 
             Point2d size = layout.PlotPaperSize; // siempre en mm
+            if (unidadesPapel == null && paperMm.HasValue && Math.Abs(paperMm.Value - 1.0) <= 1e-6
+                && paperContent.HasValue && ViewportPlanner.LooksLikeMeterPaper(paperContent.Value.Width, paperContent.Value.Height, size.X, size.Y))
+            {
+                warnings.Add("Layout '" + layout.LayoutName + "': la hoja está en mm pero el contenido del espacio papel mide "
+                    + paperContent.Value.Width.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + "×"
+                    + paperContent.Value.Height.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
+                    + " (parece dibujado en metros de papel); pase unidades_papel: 'm' para leer las escalas reales.");
+            }
             bool rotated = layout.PlotRotation == PlotRotation.Degrees090 || layout.PlotRotation == PlotRotation.Degrees270;
             return new Dictionary<string, object?>
             {
@@ -334,7 +375,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
                 ["escala"] = den == null ? null : LayoutRules.ScaleLabel(std ?? Math.Round(den.Value, 2)),
                 ["escala_estandar"] = std != null,
                 ["bloqueado"] = vp.Locked,
-                ["encendido"] = isCurrentLayout ? vp.On : null, // fuera del layout actual AutoCAD informa On = false
+                ["encendido"] = ViewportWindow.ResolveViewportOn(isCurrentLayout, vp.On, vp.Number),
                 ["capas_congeladas"] = frozen,
                 ["capas_congeladas_total"] = frozenTotal,
             };

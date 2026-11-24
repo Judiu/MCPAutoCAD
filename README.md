@@ -4,7 +4,7 @@ Puente para que Claude (Claude Code, Claude Desktop u otro cliente MCP) lea, aud
 en AutoCAD. Pensado para la oficina de LPS Ingeniería Estructural (estándar de capas y rótulo propios, textos en
 español), pero el puente es genérico.
 
-**Versión actual:** plugin **0.10.5** (96 herramientas, protocolo 0.8) · servidor **0.8.7** (5 herramientas propias).
+**Versión actual:** plugin **0.10.5** (97 herramientas, protocolo 0.8) · servidor **0.8.7** (5 herramientas propias).
 Compatible con **AutoCAD 2026** (serie R25.1) y **AutoCAD 2027** (R26.0). El contrato entre plugin y servidor es
 `protocol.md`.
 
@@ -38,7 +38,7 @@ Ningún `.dwg` se versiona (contienen datos de clientes y del personal): faltan 
 | Edición | `mover`, `copiar`, `rotar`, `escalar`, `borrar`, `borrar_fuera_de`, `borrar_excepto_seleccion`, `cambiar_capa`, `cambiar_propiedades`, `editar_mtext`, `reemplazar_texto` (conserva el formato), `editar_cota`, `estilo_cota`, `editar_tabla`, `unir_lineas`, `extender_linea` |
 | Geometría paramétrica | `muro`, `muros_desde_lineas`, `ejes_rejilla`, `recinto`, `offset`, `array_rectangular`, `array_polar`, `vano`, `union_muros`, `cotas_automaticas`, `insertar_export` (CYPE); previsualización: `confirmar`, `descartar_preview` |
 | Limpieza | `purgar`, `normalizar_capas`, `corregir_unidades_bloques` |
-| Layouts | `listar_layouts`, `crear_layout`, `configurar_layout`, `crear_viewport`, `ajustar_viewport`, `renombrar_layout`, `ordenar_layouts`, `borrar_layout`, `copiar_layout` |
+| Layouts | `listar_layouts`, `activar_layout`, `crear_layout`, `configurar_layout`, `crear_viewport`, `ajustar_viewport`, `renombrar_layout`, `ordenar_layouts`, `borrar_layout`, `copiar_layout` |
 | Documentos | `guardar`, `guardar_copia`, `abrir_documento`, `activar_documento`, `zoom_a`, `resaltar` |
 | LISP y comandos | `cargar_lisp` (cada carga la aprueba el usuario en un diálogo), `crear_lisp`, `ejecutar_comando` (solo LISP de una lista permitida), `cancelar_comando` |
 

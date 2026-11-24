@@ -28,7 +28,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
     {
         private static readonly string[] Allowed =
         {
-            "handle", "escala", "ventana_modelo", "centro_papel", "bloquear", "capa", "crear_escala_anotacion", "unidades_modelo", "confirmar", "preview",
+            "handle", "escala", "ventana_modelo", "centro_papel", "bloquear", "capa", "crear_escala_anotacion", "unidades_modelo", "unidades_papel", "forzar", "confirmar", "preview",
         };
 
         public string Name => "ajustar_viewport";
@@ -57,6 +57,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
     ""capa"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 255, ""description"": ""Mover el viewport a esta capa (existente, concepto de lps.json o capa del estándar que se crea si falta)."" },
     ""crear_escala_anotacion"": { ""type"": ""boolean"", ""default"": true, ""description"": ""Si el dibujo no tiene una escala de anotación equivalente, crearla ('LPS 1:N') en la lista de escalas. false = no tocar la lista; solo se avisa."" },
     ""unidades_modelo"": " + LayoutWrite.SchemaUnidadesModelo + @",
+    ""unidades_papel"": " + LayoutWrite.SchemaUnidadesPapel + @",
+    ""forzar"": { ""type"": ""boolean"", ""default"": false, ""description"": ""true = escribir aunque el viewport ajustado salga de los límites del papel del layout; por defecto se rechaza al confirmar."" },
     ""confirmar"": " + CleanWrite.SchemaConfirmar + @",
     ""preview"": " + CleanWrite.SchemaPreview + @"
   },
@@ -89,6 +91,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
             public string? Capa;
             public bool CrearEscala = true;
             public string? UnidadesModelo;
+            public string? UnidadesPapel;
+            public bool Forzar;
             public CleanWrite.Common Common = new CleanWrite.Common(false, null);
 
             public bool ChangesView => Denominador != null || Ventana != null;
@@ -108,6 +112,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
                 Capa = ParamReader.OptionalString(p, "capa", 1, 255),
                 CrearEscala = ParamReader.OptionalBool(p, "crear_escala_anotacion") ?? true,
                 UnidadesModelo = LayoutWrite.ReadModelUnits(p),
+                UnidadesPapel = LayoutWrite.ReadPaperUnits(p),
+                Forzar = ParamReader.OptionalBool(p, "forzar") ?? false,
                 Common = CleanWrite.ReadCommon(p),
             };
             Point3? c = ParamReader.OptionalPoint(p, "centro_papel");
@@ -195,7 +201,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
             public double? Den;
         }
 
-        private static Planned Plan(Database db, Transaction tr, Params p, List<string> warnings)
+        private static Planned Plan(Database db, Transaction tr, Params p, bool rejectWhenOutside, List<string> warnings)
         {
             (Viewport vp, Layout layout) = Resolve(db, tr, p.Handle);
             double? modelMeters = null;
@@ -203,15 +209,20 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
             if (p.Denominador != null)
             {
                 modelMeters = LayoutWrite.ModelMeters(db, p.UnidadesModelo);
-                paperMm = LayoutWrite.PaperMm(layout);
+                paperMm = LayoutWrite.PaperMm(layout, p.UnidadesPapel);
             }
             else
             {
                 // Solo para informar la escala 1:N antes/después; sin unidades o sin escala de impresión fija → null.
-                (paperMm, string _) = ListarLayoutsHandler.PlotScale(layout);
+                paperMm = ViewportPlanner.PaperMmForUnit(p.UnidadesPapel) ?? ListarLayoutsHandler.PlotScale(layout).mm;
                 int ins = AcadUtil.InsUnits(db);
                 double? fromIns = ins == 0 ? null : GeometryCore.Audit.UnitsScale.MetersPerUnit(ins);
                 modelMeters = ViewportPlanner.ResolveModelMeters(fromIns, p.UnidadesModelo, out string? _);
+            }
+
+            if (p.ChangesView)
+            {
+                ViewportPaper.WarnIfMeterPaper(tr, layout, paperMm, p.UnidadesPapel, warnings);
             }
 
             bool plan = PlanNoTwist(vp);
@@ -278,7 +289,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
                 result.PaperX - (result.Geo?.Width ?? vp.Width) / 2, result.PaperY - (result.Geo?.Height ?? vp.Height) / 2,
                 result.PaperX + (result.Geo?.Width ?? vp.Width) / 2, result.PaperY + (result.Geo?.Height ?? vp.Height) / 2));
             result.Solapa = ViewportPaper.Overlapping(tr, layout, paperBox, vp.ObjectId);
-            ViewportPaper.CheckOnPaper(layout, paperBox, warnings);
+            ViewportPaper.CheckOnPaper(layout, paperBox, p.Forzar, rejectWhenOutside && (p.ChangesView || p.PaperX != null), warnings);
             if (result.Solapa.Count > 0)
             {
                 warnings.Add("El viewport se cruza en el papel con " + result.Solapa.Count + " viewport(s): " + string.Join(", ", result.Solapa) + ".");
@@ -343,7 +354,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
             string? anotacionPre = null;
             using (Transaction tr = db.TransactionManager.StartOpenCloseTransaction())
             {
-                pre = Plan(db, tr, p, preWarnings);
+                pre = Plan(db, tr, p, rejectWhenOutside: mode == CleanWrite.Mode.Write, preWarnings);
                 if (pre.Geo != null)
                 {
                     double? den = Denominator(pre);
@@ -380,7 +391,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
                 var warnings = new List<string>(baseWarnings);
                 using (Transaction tr = d.Database.TransactionManager.StartTransaction())
                 {
-                    Planned plan = Plan(d.Database, tr, p, warnings);
+                    Planned plan = Plan(d.Database, tr, p, rejectWhenOutside: true, warnings);
                     (Viewport vpRead, Layout _) = Resolve(d.Database, tr, p.Handle);
                     var vp = (Viewport)tr.GetObject(vpRead.ObjectId, OpenMode.ForWrite);
                     string? anotacion = null;

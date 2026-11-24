@@ -83,7 +83,16 @@ namespace MCPAutoCAD.GeometryCore.Draw
         /// Planifica el reemplazo de <paramref name="buscar"/> por <paramref name="reemplazar"/> en <paramref name="raw"/>.
         /// Ninguno de los dos puede contener saltos de línea; <paramref name="buscar"/> no puede estar vacío.
         /// </summary>
-        public static ReplaceResult Plan(string raw, TextFlavor flavor, string buscar, string reemplazar, bool ignoreCase, bool palabraCompleta)
+        public static ReplaceResult Plan(string raw, TextFlavor flavor, string buscar, string reemplazar, bool ignoreCase, bool palabraCompleta) =>
+            Plan(raw, flavor, buscar, reemplazar, ignoreCase, palabraCompleta, cruzarFormato: false);
+
+        /// <summary>
+        /// Igual que <see cref="Plan(string, TextFlavor, string, string, bool, bool)"/> con <paramref name="cruzarFormato"/>:
+        /// si es true y una coincidencia cruza códigos <see cref="UnitKind.Format"/> (sin <see cref="UnitKind.Opaque"/>),
+        /// recorta prefijo/sufijo común y sustituye el tramo literal restante conservando las llaves y códigos intactos.
+        /// </summary>
+        public static ReplaceResult Plan(
+            string raw, TextFlavor flavor, string buscar, string reemplazar, bool ignoreCase, bool palabraCompleta, bool cruzarFormato)
         {
             if (raw == null)
             {
@@ -158,40 +167,58 @@ namespace MCPAutoCAD.GeometryCore.Draw
             }
 
             string escaped = EscapeReplacement(reemplazar, flavor);
-            var edits = new List<(int start, int end, int visStart)>();
+            var rawEdits = new List<(int start, int end, string rawRepl)>();
+            var visEdits = new List<int>();
             foreach (int s in matches)
             {
                 int a = charUnit[s];
                 int b = charUnit[s + buscar.Length - 1];
-                string? motivo = null;
-                for (int k = a; k <= b && motivo == null; k++)
+                bool hasFormat = false;
+                bool hasOpaque = false;
+                for (int k = a; k <= b; k++)
                 {
                     if (units[k].Kind == UnitKind.Format)
                     {
-                        motivo = MotivoCruzaFormato;
+                        hasFormat = true;
                     }
                     else if (units[k].Kind == UnitKind.Opaque)
                     {
-                        motivo = MotivoNoSustituible;
+                        hasOpaque = true;
+                        break;
                     }
                 }
 
-                if (motivo != null)
+                if (hasOpaque)
                 {
-                    result.Omitidas++;
-                    if (!result.Motivos.Contains(motivo))
-                    {
-                        result.Motivos.Add(motivo);
-                    }
-
+                    RecordOmitted(result, MotivoNoSustituible);
                     continue;
                 }
 
-                edits.Add((units[a].RawStart, units[b].RawEnd, s));
+                if (!hasFormat)
+                {
+                    rawEdits.Add((units[a].RawStart, units[b].RawEnd, escaped));
+                    visEdits.Add(s);
+                    result.Reemplazos++;
+                    continue;
+                }
+
+                if (!cruzarFormato)
+                {
+                    RecordOmitted(result, MotivoCruzaFormato);
+                    continue;
+                }
+
+                if (!TryBuildCrossFormatEdits(units, charUnit, vis, s, buscar.Length, reemplazar, flavor, rawEdits))
+                {
+                    RecordOmitted(result, MotivoCruzaFormato);
+                    continue;
+                }
+
+                visEdits.Add(s);
                 result.Reemplazos++;
             }
 
-            if (edits.Count == 0)
+            if (visEdits.Count == 0)
             {
                 result.Outcome = ReplaceOutcome.Omitida;
                 return result;
@@ -200,11 +227,11 @@ namespace MCPAutoCAD.GeometryCore.Draw
             // Texto visible esperado: el original con cada coincidencia reemplazada (en el texto visible, el reemplazo es literal).
             var expected = new StringBuilder();
             int cursor = 0;
-            foreach (var e in edits)
+            foreach (int visStart in visEdits)
             {
-                expected.Append(vis, cursor, e.visStart - cursor);
+                expected.Append(vis, cursor, visStart - cursor);
                 expected.Append(reemplazar);
-                cursor = e.visStart + buscar.Length;
+                cursor = visStart + buscar.Length;
             }
 
             expected.Append(vis, cursor, vis.Length - cursor);
@@ -212,10 +239,10 @@ namespace MCPAutoCAD.GeometryCore.Draw
 
             // Contenido bruto nuevo: se empalma de derecha a izquierda para que los índices brutos sigan válidos.
             string nuevo = raw;
-            for (int k = edits.Count - 1; k >= 0; k--)
+            for (int k = rawEdits.Count - 1; k >= 0; k--)
             {
-                var e = edits[k];
-                nuevo = nuevo.Substring(0, e.start) + escaped + nuevo.Substring(e.end);
+                (int start, int end, string rawRepl) = rawEdits[k];
+                nuevo = nuevo.Substring(0, start) + rawRepl + nuevo.Substring(end);
             }
 
             if (!Verify(raw, nuevo, flavor, expectedVis))
@@ -230,6 +257,110 @@ namespace MCPAutoCAD.GeometryCore.Draw
             result.NuevoRaw = nuevo;
             result.VisibleDespues = expectedVis;
             return result;
+        }
+
+        private static void RecordOmitted(ReplaceResult result, string motivo)
+        {
+            result.Omitidas++;
+            if (!result.Motivos.Contains(motivo))
+            {
+                result.Motivos.Add(motivo);
+            }
+        }
+
+        /// <summary>
+        /// Fallo 49: empalma un reemplazo que cruza códigos <see cref="UnitKind.Format"/> sin romper llaves ni códigos.
+        /// Recorta el prefijo/sufijo visible idéntico; el tramo restante se coloca en el primer segmento literal
+        /// (o se inserta junto al prefijo si remLen == 0) y los siguientes segmentos literales del tramo se vacían.
+        /// </summary>
+        private static bool TryBuildCrossFormatEdits(
+            List<TextUnit> units,
+            List<int> charUnit,
+            string vis,
+            int matchStart,
+            int matchLen,
+            string reemplazar,
+            TextFlavor flavor,
+            List<(int start, int end, string rawRepl)> rawEdits)
+        {
+            string matched = vis.Substring(matchStart, matchLen);
+            int maxPref = Math.Min(matched.Length, reemplazar.Length);
+            int pre = 0;
+            while (pre < maxPref && matched[pre] == reemplazar[pre])
+            {
+                pre++;
+            }
+
+            int maxSuf = Math.Min(matched.Length - pre, reemplazar.Length - pre);
+            int suf = 0;
+            while (suf < maxSuf && matched[matched.Length - 1 - suf] == reemplazar[reemplazar.Length - 1 - suf])
+            {
+                suf++;
+            }
+
+            int remMatchLen = matched.Length - pre - suf;
+            string remRepl = reemplazar.Substring(pre, reemplazar.Length - pre - suf);
+            if (remMatchLen == 0 && remRepl.Length == 0)
+            {
+                return true;
+            }
+
+            string escRem = EscapeReplacement(remRepl, flavor);
+            if (remMatchLen == 0)
+            {
+                int insertPos = pre > 0 ? units[charUnit[matchStart + pre - 1]].RawEnd : units[charUnit[matchStart]].RawStart;
+                rawEdits.Add((insertPos, insertPos, escRem));
+                return true;
+            }
+
+            int firstUnit = charUnit[matchStart + pre];
+            int lastUnit = charUnit[matchStart + pre + remMatchLen - 1];
+            var runs = new List<(int start, int end)>();
+            int runStart = -1;
+            int runEnd = -1;
+            for (int k = firstUnit; k <= lastUnit; k++)
+            {
+                TextUnit u = units[k];
+                if (u.Kind == UnitKind.Literal)
+                {
+                    if (runStart < 0)
+                    {
+                        runStart = u.RawStart;
+                    }
+
+                    runEnd = u.RawEnd;
+                }
+                else if (u.Kind == UnitKind.Format)
+                {
+                    if (runStart >= 0)
+                    {
+                        runs.Add((runStart, runEnd));
+                        runStart = -1;
+                    }
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            if (runStart >= 0)
+            {
+                runs.Add((runStart, runEnd));
+            }
+
+            if (runs.Count == 0)
+            {
+                return false;
+            }
+
+            rawEdits.Add((runs[0].start, runs[0].end, escRem));
+            for (int i = 1; i < runs.Count; i++)
+            {
+                rawEdits.Add((runs[i].start, runs[i].end, ""));
+            }
+
+            return true;
         }
 
         /// <summary>Texto que escribe <paramref name="texto"/> como literal en el formato del tipo (MTEXT: <c>\</c>, <c>{</c>, <c>}</c>; TEXT: <c>%%</c>).</summary>

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -52,7 +52,7 @@ namespace MCPAutoCAD.Plugin.Handlers
             "vista_png solo puede capturar el espacio activo (" + activo + "); el usuario debe cambiar a la pestaña '"
             + pedido + "' o se debe omitir 'espacio'.";
 
-        private static readonly string[] Allowed = { "bbox", "ancho", "alto", "mecanismo", "espacio", "ajustar_aspecto", "recortar" };
+        private static readonly string[] Allowed = { "bbox", "ancho", "alto", "mecanismo", "espacio", "ajustar_aspecto", "recortar", "cambiar_pestana" };
 
         public string Name => "vista_png";
 
@@ -89,9 +89,10 @@ namespace MCPAutoCAD.Plugin.Handlers
     ""ancho"": { ""type"": ""integer"", ""minimum"": 64, ""maximum"": 2048, ""default"": 1024, ""description"": ""Ancho de la imagen en píxeles."" },
     ""alto"": { ""type"": ""integer"", ""minimum"": 64, ""maximum"": 2048, ""default"": 768, ""description"": ""Alto de la imagen en píxeles."" },
     ""mecanismo"": { ""type"": ""string"", ""enum"": [""auto"", ""captura"", ""plot""], ""default"": ""auto"", ""description"": ""auto (defecto): sin bbox, captura nativa de la pantalla (si falla, plot); con bbox, siempre plot. captura: solo la API gráfica (sin bbox). plot: PublishToWeb PNG, tamaños fijos del PC3 (ancho/alto reales pueden diferir). Siempre sobre el espacio activo."" },
-    ""espacio"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 255, ""description"": ""'modelo' o nombre de un layout; debe ser el espacio activo (AutoCAD solo plotea el layout actual y la herramienta no cambia de pestaña). Si es otro, INVALID_PARAMS: pida al usuario que cambie a esa pestaña u omita 'espacio'. Defecto: espacio activo."" },
+    ""espacio"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 255, ""description"": ""'modelo' o nombre de un layout; debe ser el espacio activo salvo que pase cambiar_pestana: true (AutoCAD solo plotea el layout actual). Si es otro sin cambiar_pestana: true, INVALID_PARAMS."" },
     ""ajustar_aspecto"": { ""type"": ""boolean"", ""default"": true, ""description"": ""Solo con bbox. true (defecto): la ventana se amplía al aspecto ancho:alto pedido; la caja pedida nunca se recorta y puede haber márgenes. false: la ventana es exactamente el bbox y la hoja pedida tiene el aspecto del bbox (ancho y alto fijan solo el tamaño máximo). En ambos casos la zona real está en bbox_real."" },
-    ""recortar"": { ""type"": ""boolean"", ""default"": true, ""description"": ""Solo con plot. true (defecto): la hoja del PC3 (tamaños fijos) se recorta a la ventana trazada y se quitan los márgenes blancos; ancho y alto reales pueden ser menores que los pedidos. false: la hoja completa, con márgenes."" }
+    ""recortar"": { ""type"": ""boolean"", ""default"": true, ""description"": ""Solo con plot. true (defecto): la hoja del PC3 (tamaños fijos) se recorta a la ventana trazada y se quitan los márgenes blancos; ancho y alto reales pueden ser menores que los pedidos. false: la hoja completa, con márgenes."" },
+    ""cambiar_pestana"": { ""type"": ""boolean"", ""default"": false, ""description"": ""Solo con plot/auto y 'espacio' distinto del activo. true = cambia temporalmente la pestaña de AutoCAD para trazar ese layout/modelo y la restaura al terminar (se avisa en la respuesta)."" }
   },
   ""additionalProperties"": false
 }");
@@ -112,6 +113,7 @@ namespace MCPAutoCAD.Plugin.Handlers
     ""espacio"": { ""type"": ""string"", ""enum"": [""modelo"", ""papel""] },
     ""layout"": { ""type"": ""string"" },
     ""vista_restaurada"": { ""type"": ""boolean"" },
+    ""pestana_restaurada"": { ""type"": ""boolean"" },
     ""insunits"": { ""type"": ""integer"" },
     ""unidades"": { ""type"": ""string"" },
     ""advertencias"": { ""type"": ""array"", ""items"": { ""type"": ""string"" } }
@@ -129,6 +131,7 @@ namespace MCPAutoCAD.Plugin.Handlers
             ParamReader.OptionalString(parameters, "espacio", 1, 255);
             ParamReader.OptionalBool(parameters, "ajustar_aspecto");
             ParamReader.OptionalBool(parameters, "recortar");
+            ParamReader.OptionalBool(parameters, "cambiar_pestana");
         }
 
         /// <summary>Texto exacto de §5B.7 para una captura de espacio papel (sustituye al de 0.3.0).</summary>
@@ -144,6 +147,7 @@ namespace MCPAutoCAD.Plugin.Handlers
             string? espacio = ParamReader.OptionalString(parameters, "espacio", 1, 255);
             bool ajustar = ParamReader.OptionalBool(parameters, "ajustar_aspecto") ?? true;
             bool recortar = ParamReader.OptionalBool(parameters, "recortar") ?? true;
+            bool cambiarPestana = ParamReader.OptionalBool(parameters, "cambiar_pestana") ?? false;
 
             Document doc = ctx.RequireDocument();
             Database db = doc.Database;
@@ -157,10 +161,13 @@ namespace MCPAutoCAD.Plugin.Handlers
             string ctab = AcadUtil.GetStringSysVar("CTAB");
             string activeLabel = activeIsModel ? SpaceResolver.ModelName : ctab;
 
-            // Espacio capturado: SIEMPRE el activo (layoutId null → PlotCapture usa el layout actual en solo lectura).
+            // Espacio capturado: el activo, salvo que cambiar_pestana: true pida conmutar temporalmente a otro.
             ObjectId? layoutId = null;
             bool capturedPaper = !activeIsModel;
             string layoutName = activeIsModel ? ModelLayoutName : ctab;
+            string? switchToTab = null;
+            string? restoreTab = null;
+            bool pestanaRestaurada = false;
 
             ViewCapture.Result? image = null;
             string usedMechanism = "";
@@ -171,7 +178,7 @@ namespace MCPAutoCAD.Plugin.Handlers
             int warnWidth = width;
             int warnHeight = height;
             object Finish(ViewCapture.Result img, string used, ViewWindow? win) =>
-                BuildResult(ctx.Pid, db, img, used, win, capturedPaper, layoutName, warnings, sw, warnWidth, warnHeight, recortar);
+                BuildResult(ctx.Pid, db, img, used, win, capturedPaper, layoutName, warnings, sw, warnWidth, warnHeight, recortar, pestanaRestaurada);
 
             // Errores del trazado directo (bbox o mecanismo 'plot'): mismo mapeo que antes de 0.4 (F5 / FromAcad).
             Exception MapDirectPlotError(Exception ex) => MapPlotError(ex, layoutName, activeLabel, espacio);
@@ -180,11 +187,7 @@ namespace MCPAutoCAD.Plugin.Handlers
             {
                 if (espacio != null)
                 {
-                    // §5B.7 (F5, 0.3.2): el espacio pedido se resuelve como §5B.1 (inexistente → NOT_FOUND data.espacio)
-                    // y DEBE ser el activo. Gate en vivo 0.3.1: plotear otro layout lanzaba
-                    // Autodesk.AutoCAD.Runtime.Exception eLayoutNotCurrent (AutoCAD solo plotea el layout actual) y el
-                    // usuario recibía INTERNAL. Decisión: no cambiar CTAB/TILEMODE a espaldas del usuario; si no es el
-                    // activo → INVALID_PARAMS antes de intentar plotear. Transacción de solo lectura.
+                    // §5B.7 (F5, 0.3.2): el espacio pedido se resuelve como §5B.1 (inexistente → NOT_FOUND data.espacio).
                     using Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
                     SpaceResolver.ResolvedSpace resolved = SpaceResolver.Resolve(db, tr, espacio);
                     bool resolvedIsModel = string.Equals(resolved.Name, SpaceResolver.ModelName, StringComparison.Ordinal);
@@ -194,12 +197,36 @@ namespace MCPAutoCAD.Plugin.Handlers
                     tr.Commit();
                     if (!isActive)
                     {
-                        throw ToolException.InvalidParams(NotActiveSpaceMessage(activeLabel, resolved.Name));
+                        if (!cambiarPestana)
+                        {
+                            throw ToolException.InvalidParams(
+                                NotActiveSpaceMessage(activeLabel, resolved.Name)
+                                + " También puede pasar cambiar_pestana: true o usar activar_layout.");
+                        }
+
+                        if (mechanism == Captura)
+                        {
+                            throw ToolException.InvalidParams(
+                                "mecanismo 'captura' no admite cambiar_pestana sobre un espacio no activo; use 'auto' o 'plot'");
+                        }
+
+                        switchToTab = resolvedIsModel ? ModelLayoutName : resolved.Name;
+                        restoreTab = activeIsModel ? ModelLayoutName : ctab;
+                        capturedPaper = !resolvedIsModel;
+                        layoutName = switchToTab;
+                        pestanaRestaurada = true;
+                        warnings.Add("Se cambió temporalmente a la pestaña '" + switchToTab + "' para capturarla y se restauró '" + restoreTab + "'.");
                     }
                 }
 
                 if (bbox == null)
                 {
+                    if (switchToTab != null)
+                    {
+                        return RunPlotNeutral(doc, layoutId, null, width, height, warnings,
+                            img => Finish(img, Plot, null), MapDirectPlotError, switchToTab, restoreTab);
+                    }
+
                     // Sin bbox y en el espacio activo: la vista no se toca; bbox de respuesta = ventana de la vista actual.
                     using ViewTableRecord original = ed.GetCurrentView();
                     // GetCurrentView() describe la vista en DCS. Solo es WCS en planta (VIEWTWIST 0, VIEWDIR (0,0,1)) y sin
@@ -300,7 +327,7 @@ namespace MCPAutoCAD.Plugin.Handlers
 
                     // AutoCAD interpreta la ventana de trazado en el DCS de la vista: fuera de planta WCS la imagen puede
                     // cubrir otra zona.
-                    if (!IsPlanWcsView(activeIsModel))
+                    if (switchToTab == null && !IsPlanWcsView(activeIsModel))
                     {
                         warnings.Add("La vista actual no está en planta WCS (viewport flotante, SCP girado, VIEWTWIST o VIEWDIR): la ventana bbox se interpreta en coordenadas de la vista y la imagen puede no corresponder al bbox pedido; ponga la vista en planta (PLAN, SCP universal) y repita.");
                     }
@@ -308,7 +335,7 @@ namespace MCPAutoCAD.Plugin.Handlers
                     // §5B.7 / §3.9 (gate en vivo de Fase 3): el trazado va SIEMPRE en el grupo neutro BE/E/U.
                     ViewWindow plotWindow = w;
                     return RunPlotNeutral(doc, layoutId, plotWindow, mediaWidth, mediaHeight, warnings,
-                        img => Finish(img, Plot, plotWindow), MapDirectPlotError);
+                        img => Finish(img, Plot, plotWindow), MapDirectPlotError, switchToTab, restoreTab);
                 }
             }
             catch (AcRuntimeException ex)
@@ -374,7 +401,7 @@ namespace MCPAutoCAD.Plugin.Handlers
         /// <summary>Respuesta de §5B.7 (común a captura y plot). Añade la advertencia de espacio papel.</summary>
         private static object BuildResult(
             int pid, Database db, ViewCapture.Result image, string usedMechanism, ViewWindow? window, bool capturedPaper,
-            string layoutName, List<string> warnings, Stopwatch sw, int requestedWidth, int requestedHeight, bool recortar)
+            string layoutName, List<string> warnings, Stopwatch sw, int requestedWidth, int requestedHeight, bool recortar, bool pestanaRestaurada)
         {
             const bool viewRestored = true;
 
@@ -461,6 +488,7 @@ namespace MCPAutoCAD.Plugin.Handlers
                 espacio = capturedPaper ? "papel" : "modelo",
                 layout = layoutName,
                 vista_restaurada = viewRestored,
+                pestana_restaurada = pestanaRestaurada,
                 recortada,
                 insunits = ins,
                 unidades = UnitsTable.Name(ins),
@@ -524,7 +552,8 @@ namespace MCPAutoCAD.Plugin.Handlers
         /// </summary>
         private static Task<object> RunPlotNeutral(
             Document doc, ObjectId? layoutId, ViewWindow? window, int width, int height, List<string> warnings,
-            Func<ViewCapture.Result, object> finish, Func<Exception, Exception> mapError)
+            Func<ViewCapture.Result, object> finish, Func<Exception, Exception> mapError,
+            string? switchToTab = null, string? restoreTab = null)
         {
             PlotCapture.ThrowIfPlotting();
             return UndoGroup.RunNeutral(
@@ -532,34 +561,57 @@ namespace MCPAutoCAD.Plugin.Handlers
                 "vista_png",
                 d =>
                 {
-                    // Gate en vivo de Fase 4A (2026-10-27, bloqueante): MCP-PREVIEW es no imprimible y el trazado la omitía.
-                    // Se hace imprimible SOLO durante el trazado, dentro de este grupo neutro, y se restaura explícitamente
-                    // en finally; el "_.U" del grupo lo deshace además (PreviewPlotVisibility, protocol.md §5B.7).
-                    ObjectId? previewLayer = PreviewPlotVisibility.Enable(d, warnings);
-                    ViewCapture.Result image;
+                    if (switchToTab != null)
+                    {
+                        LayoutManager.Current.CurrentLayout = switchToTab;
+                    }
+
                     try
                     {
-                        image = PlotCapture.Capture(d, layoutId, window, width, height, warnings);
-                    }
-                    catch (Exception ex)
-                    {
-                        Exception mapped = mapError(ex);
-                        if (ReferenceEquals(mapped, ex))
+                        // Gate en vivo de Fase 4A (2026-10-27, bloqueante): MCP-PREVIEW es no imprimible y el trazado la omitía.
+                        // Se hace imprimible SOLO durante el trazado, dentro de este grupo neutro, y se restaura explícitamente
+                        // en finally; el "_.U" del grupo lo deshace además (PreviewPlotVisibility, protocol.md §5B.7).
+                        ObjectId? previewLayer = PreviewPlotVisibility.Enable(d, warnings);
+                        ViewCapture.Result image;
+                        try
                         {
-                            throw;
+                            image = PlotCapture.Capture(d, layoutId, window, width, height, warnings);
+                        }
+                        catch (Exception ex)
+                        {
+                            Exception mapped = mapError(ex);
+                            if (ReferenceEquals(mapped, ex))
+                            {
+                                throw;
+                            }
+
+                            throw mapped;
+                        }
+                        finally
+                        {
+                            if (previewLayer.HasValue)
+                            {
+                                PreviewPlotVisibility.Restore(d, previewLayer.Value, warnings);
+                            }
                         }
 
-                        throw mapped;
+                        return finish(image);
                     }
                     finally
                     {
-                        if (previewLayer.HasValue)
+                        if (restoreTab != null)
                         {
-                            PreviewPlotVisibility.Restore(d, previewLayer.Value, warnings);
+                            try
+                            {
+                                LayoutManager.Current.CurrentLayout = restoreTab;
+                            }
+                            catch (Exception ex)
+                            {
+                                PluginLog.Warn("vista_png: no se pudo restaurar la pestaña '" + restoreTab + "' (" + ex.Message + ").");
+                                warnings.Add("No se pudo restaurar la pestaña original '" + restoreTab + "' tras capturar '" + switchToTab + "'.");
+                            }
                         }
                     }
-
-                    return finish(image);
                 },
                 warnings,
                 WatchedSysVars);

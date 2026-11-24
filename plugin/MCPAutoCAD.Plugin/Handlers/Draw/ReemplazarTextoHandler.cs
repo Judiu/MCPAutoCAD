@@ -34,7 +34,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         private static readonly string[] Allowed =
         {
             "buscar", "reemplazar", "capas", "tipos", "espacio", "bbox", "distinguir_mayusculas", "palabra_completa",
-            "max_entidades", "confirmar", "preview",
+            "cruzar_formato", "max_entidades", "confirmar", "preview",
         };
 
         public string Name => "reemplazar_texto";
@@ -62,6 +62,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     ""bbox"": " + ParamReader.SchemaBbox + @",
     ""distinguir_mayusculas"": { ""type"": ""boolean"", ""default"": false, ""description"": ""true = la comparación distingue mayúsculas (los acentos siempre cuentan)."" },
     ""palabra_completa"": { ""type"": ""boolean"", ""default"": false, ""description"": ""true = solo coincidencias no pegadas a otra letra o cifra en el texto visible."" },
+    ""cruzar_formato"": { ""type"": ""boolean"", ""default"": false, ""description"": ""true = permite reemplazar coincidencias que cruzan códigos de formato (\\L, {…}, \\f…;, %%u) conservando intactos los códigos y aplicando el cambio desde el primer tramo visible."" },
     ""max_entidades"": { ""type"": ""integer"", ""minimum"": 1, ""maximum"": 10000, ""default"": 2000, ""description"": ""Máximo de entidades que puede cambiar la llamada. Si hay más, se rechaza: acote con capas, bbox o espacio."" },
     ""confirmar"": " + CleanWrite.SchemaConfirmar + @",
     ""preview"": " + CleanWrite.SchemaPreview + @"
@@ -107,6 +108,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             public BBox2? Bbox;
             public bool IgnoreCase;
             public bool PalabraCompleta;
+            public bool CruzarFormato;
             public int MaxEntidades = DefaultMaxEntidades;
             public CleanWrite.Common Common = new CleanWrite.Common(false, null);
         }
@@ -175,6 +177,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 Bbox = ParamReader.OptionalBbox(p, "bbox"),
                 IgnoreCase = !(ParamReader.OptionalBool(p, "distinguir_mayusculas") ?? false),
                 PalabraCompleta = ParamReader.OptionalBool(p, "palabra_completa") ?? false,
+                CruzarFormato = ParamReader.OptionalBool(p, "cruzar_formato") ?? false,
                 MaxEntidades = ParamReader.OptionalInt(p, "max_entidades", 1, MaxEntidadesLimit) ?? DefaultMaxEntidades,
                 Common = CleanWrite.ReadCommon(p),
             };
@@ -312,6 +315,11 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             if (scan.Ocultas > 0)
             {
                 warnings.Add(scan.Ocultas + " coincidencia(s) en capas congeladas o apagadas (se modifican igualmente).");
+            }
+
+            if (!q.CruzarFormato && HasCrossFormatOmission(scan.Omitidas))
+            {
+                warnings.Add("Algunas coincidencias se omitieron por cruzar códigos de formato: pase cruzar_formato: true o busque solo la parte sin códigos.");
             }
 
             Dictionary<string, object?> d = CleanWrite.Response(pid, mode, ins, warnings);
@@ -520,7 +528,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             }
 
             res.Revisadas++;
-            ReplaceResult plan = TextReplacePlanner.Plan(raw, flavor, q.Buscar, q.Reemplazar, q.IgnoreCase, q.PalabraCompleta);
+            ReplaceResult plan = TextReplacePlanner.Plan(raw, flavor, q.Buscar, q.Reemplazar, q.IgnoreCase, q.PalabraCompleta, q.CruzarFormato);
             if (plan.Outcome == ReplaceOutcome.SinCoincidencias)
             {
                 return;
@@ -654,6 +662,19 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             {
                 return "";
             }
+        }
+
+        private static bool HasCrossFormatOmission(List<Row> omitidas)
+        {
+            foreach (Row r in omitidas)
+            {
+                if (r.Motivo != null && r.Motivo.Contains(TextReplacePlanner.MotivoCruzaFormato, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static string Join(List<string> items)

@@ -147,5 +147,17 @@ namespace MCPAutoCAD.GeometryCore.Tests.Audit
             Assert.Throws<ArgumentException>(() => ViewportWindow.FromViewport(0, 0, double.PositiveInfinity, 20, 10, 0));
             Assert.Throws<ArgumentException>(() => ViewportWindow.FromViewport(0, 0, 10, 20, 10, double.NaN));
         }
+
+        [Theory]
+        [InlineData(true, true, 2, true)]
+        [InlineData(true, false, 2, false)]
+        [InlineData(false, true, 2, true)]
+        [InlineData(false, false, 0, false)]
+        [InlineData(false, false, -1, null)]
+        [InlineData(false, false, 2, null)]
+        public void ResolveViewportOn_Fallo51(bool isCurrent, bool on, int number, bool? expected)
+        {
+            Assert.Equal(expected, ViewportWindow.ResolveViewportOn(isCurrent, on, number));
+        }
     }
 }

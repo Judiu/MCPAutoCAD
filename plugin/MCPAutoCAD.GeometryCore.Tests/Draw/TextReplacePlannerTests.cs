@@ -293,5 +293,45 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
             Assert.Equal("%%d", r.VisibleDespues);
             Assert.Equal("%%%%%%d", r.NuevoRaw);
         }
+
+        [Fact]
+        public void Mtext_CruzarFormato_CasoRealRotuloFallo49()
+        {
+            // Caso real fallo 49: "{\\H2x;1} de 4" buscando "1 de" -> "2 de" (y "10 de").
+            ReplaceResult r1 = TextReplacePlanner.Plan("{\\H2x;1} de 4", TextFlavor.Mtext, "1 de", "2 de", false, false, cruzarFormato: true);
+            Assert.Equal(ReplaceOutcome.Reemplazar, r1.Outcome);
+            Assert.Equal("{\\H2x;2} de 4", r1.NuevoRaw);
+            Assert.Equal("2 de 4", r1.VisibleDespues);
+
+            // Inserción pura en prefijo común: "1 de" -> "10 de"
+            ReplaceResult r2 = TextReplacePlanner.Plan("{\\H2x;1} de 4", TextFlavor.Mtext, "1 de", "10 de", false, false, cruzarFormato: true);
+            Assert.Equal(ReplaceOutcome.Reemplazar, r2.Outcome);
+            Assert.Equal("{\\H2x;10} de 4", r2.NuevoRaw);
+            Assert.Equal("10 de 4", r2.VisibleDespues);
+
+            // Cambio completo cruzando grupo: conserva las llaves y formato del primer carácter.
+            ReplaceResult r3 = TextReplacePlanner.Plan("{\\fArial;AREA} TECNICA", TextFlavor.Mtext, "AREA TECNICA", "CUARTO TECNICO", false, false, cruzarFormato: true);
+            Assert.Equal(ReplaceOutcome.Reemplazar, r3.Outcome);
+            Assert.Equal("{\\fArial;CUARTO TECNICO}", r3.NuevoRaw);
+            Assert.Equal("CUARTO TECNICO", r3.VisibleDespues);
+
+            // Sin cruzarFormato (defecto), sigue omitiéndose
+            ReplaceResult r4 = TextReplacePlanner.Plan("{\\H2x;1} de 4", TextFlavor.Mtext, "1 de", "2 de", false, false);
+            Assert.Equal(ReplaceOutcome.Omitida, r4.Outcome);
+            Assert.Contains(TextReplacePlanner.MotivoCruzaFormato, r4.Motivos);
+        }
+
+        [Fact]
+        public void Mtext_CruzarFormato_OpaqueYSinFlag()
+        {
+            ReplaceResult rOpaque = TextReplacePlanner.Plan("A\\S1^2;B", TextFlavor.Mtext, "A1/2B", "X", false, false, cruzarFormato: true);
+            Assert.Equal(ReplaceOutcome.Omitida, rOpaque.Outcome);
+            Assert.Contains(TextReplacePlanner.MotivoNoSustituible, rOpaque.Motivos);
+
+            ReplaceResult rDb = TextReplacePlanner.Plan("AR%%uEA", TextFlavor.Dbtext, "AREA", "B", false, false, cruzarFormato: true);
+            Assert.Equal(ReplaceOutcome.Reemplazar, rDb.Outcome);
+            Assert.Equal("B%%u", rDb.NuevoRaw);
+            Assert.Equal("B", rDb.VisibleDespues);
+        }
     }
 }

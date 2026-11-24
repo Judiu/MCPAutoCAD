@@ -222,6 +222,27 @@ namespace MCPAutoCAD.GeometryCore.Tests.Layouts
         public void Solape_Contenida() =>
             Assert.True(ViewportPlanner.Overlaps(BBox2.FromCorners(0, 0, 10, 10), BBox2.FromCorners(4, 4, 5, 5)));
 
+        [Fact]
+        public void PapelEnMetros_Escala150_Fallo48()
+        {
+            Assert.Equal(1000.0, ViewportPlanner.PaperMmForUnit("m"));
+            Assert.Equal(1.0, ViewportPlanner.PaperMmForUnit("mm"));
+            Assert.Null(ViewportPlanner.PaperMmForUnit("cm"));
+
+            // Ventana de 20.75 × 18.3 m a 1:50 con papel en metros → 0.415 × 0.366 unidades de papel, factor 0.02.
+            ViewportGeometry g = ViewportPlanner.FromWindow(BBox2.FromCorners(-9.9, -11, 10.85, 7.3), 50, 1000.0, 1.0, 0.5, 0.35);
+            Assert.Equal(0.02, g.CustomScale, 9);
+            Assert.Equal(0.415, g.Width, 6);
+            Assert.Equal(0.366, g.Height, 6);
+            Assert.Equal(50.0, LayoutRules.Denominator(g.CustomScale, 1000.0, 1.0)!.Value, 9);
+
+            // Detección de hoja en metros (A3 de 1.0 × 0.7 m con configuración en 420 × 297 mm) y límites.
+            Assert.True(ViewportPlanner.LooksLikeMeterPaper(1.0, 0.7, 420.0, 297.0));
+            Assert.False(ViewportPlanner.LooksLikeMeterPaper(420.0, 297.0, 420.0, 297.0));
+            Assert.True(ViewportPlanner.IsOutsideLimits(BBox2.FromCorners(-19.71, -65.69, 395.29, 300.31), BBox2.FromCorners(0, 0, 420, 297)));
+            Assert.False(ViewportPlanner.IsOutsideLimits(BBox2.FromCorners(0.1, 0.1, 0.9, 0.6), BBox2.FromCorners(0, 0, 1.0, 0.7)));
+        }
+
         private static void AssertBox(BBox2 expected, BBox2 actual)
         {
             Assert.Equal(expected.Xmin, actual.Xmin, 9);

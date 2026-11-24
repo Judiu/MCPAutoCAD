@@ -107,6 +107,22 @@ namespace MCPAutoCAD.GeometryCore.Audit
         }
 
         /// <summary>
+        /// Estado 'encendido' para <c>listar_layouts</c> (fallo 51): en el layout actual, el real (<paramref name="on"/>);
+        /// en un layout no actual, true si AutoCAD lo reporta encendido, false si <paramref name="number"/> == 0
+        /// (apagado explícito), y null si <paramref name="number"/> &lt; 0 con <paramref name="on"/> = false (AutoCAD no
+        /// inicializó el viewport en la sesión).
+        /// </summary>
+        public static bool? ResolveViewportOn(bool isCurrentLayout, bool on, int number)
+        {
+            if (isCurrentLayout || on)
+            {
+                return on;
+            }
+
+            return number == 0 ? false : (bool?)null;
+        }
+
+        /// <summary>
         /// Criterio por número: true si <paramref name="number"/> = 1, o si Number ≤ 0 (AutoCAD informa −1 en los
         /// viewports de los layouts que NO son el actual) y es el primer viewport del layout en el orden del registro de
         /// bloque (<paramref name="firstInLayout"/>). Es el respaldo de <see cref="TryResolvePaperViewport{T}"/>, que es

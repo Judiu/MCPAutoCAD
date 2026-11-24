@@ -136,6 +136,11 @@ namespace MCPAutoCAD.Plugin.Handlers.Layouts
                     int orden = created.Layout.TabOrder;
                     (int entidades, int viewports) = LayoutWrite.Count(tr, created.Layout);
                     tr.Commit();
+                    if (viewports > 0)
+                    {
+                        warnings.Add("El layout copiado tiene " + viewports + " viewport(s): heredan el estado del origen, aunque listar_layouts mostrará encendido: null hasta activar su pestaña (activar_layout).");
+                    }
+
                     return Build(CleanWrite.Mode.Write, (info.real, info.orden, entidades, viewports), handle, orden);
                 }
             });
