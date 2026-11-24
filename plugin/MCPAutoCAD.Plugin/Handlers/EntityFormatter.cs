@@ -198,6 +198,23 @@ namespace MCPAutoCAD.Plugin.Handlers
                     }
 
                     break;
+
+                case "ACAD_TABLE":
+                    if (e is Table tbl)
+                    {
+                        d["filas"] = Try<int?>(() => tbl.Rows.Count);
+                        d["columnas"] = Try<int?>(() => tbl.Columns.Count);
+                        d["posicion"] = Try(() => AcadUtil.PointOrNull(tbl.Position));
+                        d["estilo"] = Try(() => tbl.TableStyleName);
+                        d["ancho"] = Num(() => tbl.Width);
+                        d["alto"] = Num(() => tbl.Height);
+                        if (full)
+                        {
+                            d["vinculada"] = Try<bool?>(() => tbl.GetDataLink().Count > 0);
+                        }
+                    }
+
+                    break;
             }
 
             if (full)

@@ -4,7 +4,7 @@ Puente para que Claude (Claude Code, Claude Desktop u otro cliente MCP) lea, aud
 en AutoCAD. Pensado para la oficina de LPS Ingeniería Estructural (estándar de capas y rótulo propios, textos en
 español), pero el puente es genérico.
 
-**Versión actual:** plugin **0.10.4** (93 herramientas, protocolo 0.8) · servidor **0.8.7** (5 herramientas propias).
+**Versión actual:** plugin **0.10.5** (96 herramientas, protocolo 0.8) · servidor **0.8.7** (5 herramientas propias).
 Compatible con **AutoCAD 2026** (serie R25.1) y **AutoCAD 2027** (R26.0). El contrato entre plugin y servidor es
 `protocol.md`.
 
@@ -32,10 +32,10 @@ Ningún `.dwg` se versiona (contienen datos de clientes y del personal): faltan 
 | Área | Herramientas |
 |---|---|
 | Puente y estado | `ping`, `estado` (responde en modo degradado si hay un comando activo), `instancias`*, `seleccionar_instancia`* |
-| Lectura | `listar_capas`, `consultar_entidades`, `propiedades`, `textos`, `bloques`, `seleccion_actual`, `xrefs`, `vista_png`, `resumen_archivo`, `punto_de`, `distancia`, `proyectar` |
+| Lectura | `listar_capas`, `consultar_entidades`, `propiedades`, `textos`, `bloques`, `seleccion_actual`, `xrefs`, `vista_png`, `resumen_archivo`, `leer_tabla`, `punto_de`, `distancia`, `proyectar` |
 | Auditoría | `auditar_capas`, `entidades_en_capa_0`, `auditar_bloques`, `areas_por_capa`, `verificar_cuadro_areas`, `duplicados`, `textos_fuera_de_escala`, `auditar_dibujo`, `marcar_hallazgos`, `limpiar_observaciones`, `auditar_archivo`; en lote: `auditar_carpeta`*, `estado_auditoria`*, `cancelar_auditoria`* |
-| Dibujo | `crear_capa`, `linea`, `polilinea`, `circulo`, `arco`, `texto`, `mtext`, `insertar_bloque`, `insertar_imagen`, `cota`, `hatch` (también patrones del dibujo, p. ej. de Revit) |
-| Edición | `mover`, `copiar`, `rotar`, `escalar`, `borrar`, `borrar_fuera_de`, `borrar_excepto_seleccion`, `cambiar_capa`, `cambiar_propiedades`, `editar_mtext`, `reemplazar_texto` (conserva el formato), `editar_cota`, `estilo_cota`, `unir_lineas`, `extender_linea` |
+| Dibujo | `crear_capa`, `linea`, `polilinea`, `circulo`, `arco`, `texto`, `mtext`, `tabla`, `insertar_bloque`, `insertar_imagen`, `cota`, `hatch` (también patrones del dibujo, p. ej. de Revit) |
+| Edición | `mover`, `copiar`, `rotar`, `escalar`, `borrar`, `borrar_fuera_de`, `borrar_excepto_seleccion`, `cambiar_capa`, `cambiar_propiedades`, `editar_mtext`, `reemplazar_texto` (conserva el formato), `editar_cota`, `estilo_cota`, `editar_tabla`, `unir_lineas`, `extender_linea` |
 | Geometría paramétrica | `muro`, `muros_desde_lineas`, `ejes_rejilla`, `recinto`, `offset`, `array_rectangular`, `array_polar`, `vano`, `union_muros`, `cotas_automaticas`, `insertar_export` (CYPE); previsualización: `confirmar`, `descartar_preview` |
 | Limpieza | `purgar`, `normalizar_capas`, `corregir_unidades_bloques` |
 | Layouts | `listar_layouts`, `crear_layout`, `configurar_layout`, `crear_viewport`, `ajustar_viewport`, `renombrar_layout`, `ordenar_layouts`, `borrar_layout`, `copiar_layout` |
