@@ -22,6 +22,12 @@ namespace MCPAutoCAD.GeometryCore.Draw
         /// </summary>
         public const int MaxEntities = 10000;
 
+        /// <summary>
+        /// Máximo efectivo por llamada sumando entidades del espacio modelo y entidades dentro de las definiciones de bloque
+        /// nuevas clonadas en esa llamada (fallo 54).
+        /// </summary>
+        public const int MaxEffectiveEntities = 20000;
+
         /// <summary>Entidades por WblockCloneObjects dentro de una llamada (fallo 38): lotes pequeños, un solo CTRL+Z.</summary>
         public const int BatchSize = 2000;
 
@@ -35,7 +41,7 @@ namespace MCPAutoCAD.GeometryCore.Draw
         public static readonly IReadOnlyList<string> ImportableTypes = new[]
         {
             "LINE", "LWPOLYLINE", "POLYLINE", "CIRCLE", "ARC", "ELLIPSE", "SPLINE", "POINT", "TEXT", "MTEXT", "HATCH", "SOLID",
-            "INSERT",
+            "INSERT", "DIMENSION",
         };
 
         private static readonly HashSet<string> Importable = new HashSet<string>(ImportableTypes, StringComparer.OrdinalIgnoreCase);
@@ -153,6 +159,14 @@ namespace MCPAutoCAD.GeometryCore.Draw
             + "en la previsualización) o por páginas con desde: 0, " + MaxEntities.ToString(CultureInfo.InvariantCulture) + ", "
             + (2 * MaxEntities).ToString(CultureInfo.InvariantCulture) + "…, una llamada después de otra";
 
+        /// <summary>Mensaje de INVALID_PARAMS cuando la suma de entidades del modelo y dentro de bloques nuevos supera <see cref="MaxEffectiveEntities"/>.</summary>
+        public static string TooManyEffectiveEntities(int modelo, int enBloques) =>
+            "la importación clonaría " + (modelo + enBloques).ToString(CultureInfo.InvariantCulture)
+            + " entidades efectivas (" + modelo.ToString(CultureInfo.InvariantCulture) + " en el modelo + "
+            + enBloques.ToString(CultureInfo.InvariantCulture) + " dentro de definiciones de bloque nuevas; máximo "
+            + MaxEffectiveEntities.ToString(CultureInfo.InvariantCulture)
+            + " por llamada): divida la importación con filtrar_capas o páginas más pequeñas con desde.";
+
         /// <summary>Página de la selección: índice inicial, cantidad y el <c>desde</c> de la siguiente (null si es la última).</summary>
         public sealed record Pagina(int Inicio, int Cantidad, int? Siguiente);
 
@@ -200,14 +214,59 @@ namespace MCPAutoCAD.GeometryCore.Draw
         /// índices de un mismo grupo (un HATCH asociativo y su contorno van en el mismo lote para que el clonado conserve la
         /// asociación). Un grupo más grande que el tamaño va en un lote propio. Índices fuera de rango en los grupos se ignoran.
         /// </summary>
-        public static List<List<int>> Lotes(int n, IEnumerable<IReadOnlyCollection<int>>? grupos, int tamano)
+        public static List<List<int>> Lotes(int n, IEnumerable<IReadOnlyCollection<int>>? grupos, int tamano) =>
+            LotesPonderados(n, null, grupos, tamano);
+
+        /// <summary>
+        /// Como <see cref="Lotes"/>, pero acotando cada lote por la suma de <paramref name="pesos"/> (p. ej. 1 + entidades nuevas
+        /// dentro del bloque que arrastra un INSERT) para no saturar <c>WblockCloneObjects</c> con cientos de bloques pesados.
+        /// </summary>
+        public static List<List<int>> LotesPonderados(
+            int n,
+            IReadOnlyList<int>? pesos,
+            IEnumerable<IReadOnlyCollection<int>>? grupos,
+            int tamano)
         {
             if (tamano < 1)
             {
                 throw new ArgumentOutOfRangeException(nameof(tamano));
             }
 
-            // Unión-búsqueda: cada índice apunta a la raíz de su grupo (la raíz es el menor índice del grupo).
+            List<List<int>> unidades = AgruparPorRaiz(n, grupos);
+            var lotes = new List<List<int>>();
+            var actual = new List<int>();
+            int pesoActual = 0;
+
+            foreach (List<int> u in unidades)
+            {
+                int pesoUnidad = 0;
+                foreach (int i in u)
+                {
+                    int w = pesos != null && i < pesos.Count ? Math.Max(1, pesos[i]) : 1;
+                    pesoUnidad += w;
+                }
+
+                if (actual.Count > 0 && pesoActual + pesoUnidad > tamano)
+                {
+                    lotes.Add(actual);
+                    actual = new List<int>();
+                    pesoActual = 0;
+                }
+
+                actual.AddRange(u);
+                pesoActual += pesoUnidad;
+            }
+
+            if (actual.Count > 0)
+            {
+                lotes.Add(actual);
+            }
+
+            return lotes;
+        }
+
+        private static List<List<int>> AgruparPorRaiz(int n, IEnumerable<IReadOnlyCollection<int>>? grupos)
+        {
             var padre = new int[Math.Max(0, n)];
             for (int i = 0; i < padre.Length; i++)
             {
@@ -250,7 +309,7 @@ namespace MCPAutoCAD.GeometryCore.Draw
             }
 
             var unidades = new Dictionary<int, List<int>>();
-            var orden = new List<int>();
+            var resultado = new List<List<int>>();
             for (int i = 0; i < n; i++)
             {
                 int r = Raiz(i);
@@ -258,32 +317,13 @@ namespace MCPAutoCAD.GeometryCore.Draw
                 {
                     u = new List<int>();
                     unidades[r] = u;
-                    orden.Add(r);
+                    resultado.Add(u);
                 }
 
                 u.Add(i);
             }
 
-            var lotes = new List<List<int>>();
-            var actual = new List<int>();
-            foreach (int r in orden)
-            {
-                List<int> u = unidades[r];
-                if (actual.Count > 0 && actual.Count + u.Count > tamano)
-                {
-                    lotes.Add(actual);
-                    actual = new List<int>();
-                }
-
-                actual.AddRange(u);
-            }
-
-            if (actual.Count > 0)
-            {
-                lotes.Add(actual);
-            }
-
-            return lotes;
+            return resultado;
         }
 
         /// <summary>Caracteres que AutoCAD no admite en un nombre de capa ('|' lo reserva para las capas de xref).</summary>

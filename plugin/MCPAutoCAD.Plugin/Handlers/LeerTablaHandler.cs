@@ -188,15 +188,13 @@ namespace MCPAutoCAD.Plugin.Handlers
                 {
                     for (int c = 0; c < cols; c++)
                     {
-                        Cell cell = table.Cells[r, c];
-                        if (cell.IsMerged == true)
+                        CellRange? mr = TableSupport.TryGetMergeRange(table, r, c);
+                        if (mr != null && (mr.TopRow != r || mr.LeftColumn != c))
                         {
-                            CellRange mr = cell.GetMergeRange();
-                            if (mr != null && !mr.IsNull && (mr.TopRow != r || mr.LeftColumn != c))
-                            {
-                                continue;
-                            }
+                            continue;
                         }
+
+                        Cell cell = table.Cells[r, c];
 
                         string texto = TableSupport.ReadCellText(cell);
                         if (p.SoloNoVacias && string.IsNullOrEmpty(texto))

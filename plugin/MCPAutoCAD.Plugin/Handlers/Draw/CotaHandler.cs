@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.Json;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
@@ -25,6 +26,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     /// </summary>
     internal sealed class CotaHandler : IToolHandler
     {
+        public const int MaxItems = 100;
         public const string Lineal = "lineal";
         public const string Alineada = "alineada";
         public const string CoincidentPoints = "p2: coincide con p1";
@@ -35,14 +37,19 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
         private static readonly string[] Tipos = { Lineal, Alineada };
         private static readonly string[] Own = { "tipo", "p1", "p2", "posicion_linea", "rotacion", "estilo", "texto_sustituto", "escala_global" };
-        private static readonly string[] Allowed = BuildAllowed();
+        private static readonly string[] Batch = { "cotas" };
+        private static readonly string[] ItemAllowed = { "tipo", "p1", "p2", "posicion_linea", "rotacion", "estilo", "texto_sustituto", "escala_global" };
+        private static readonly string[] Allowed = PrimitiveSupport.Concat(
+            PrimitiveSupport.Concat(Own, Batch),
+            PrimitiveSupport.Concat(DrawWrite.CommonParams, PrimitiveSupport.RespuestaParam));
 
         public string Name => "cota";
 
         public string Description =>
-            "ESCRIBE en el dibujo: crea una cota lineal (horizontal/vertical/rotada según 'rotacion') o alineada entre p1 y p2, " +
-            "con la línea de cota por 'posicion_linea', en un solo paso de deshacer. Usa el estilo de cota indicado o el actual, " +
-            "y la capa del concepto 'cotas' del estándar LPS si no se da otra. Devuelve la medida calculada por AutoCAD.";
+            "ESCRIBE en el dibujo: crea una cota lineal (horizontal/vertical/rotada según 'rotacion') o alineada entre p1 y p2 " +
+            "con la línea de cota por 'posicion_linea', o un lote (cotas: 1 a 100) en un solo paso de deshacer. En cotas " +
+            "alineadas AutoCAD proyecta 'posicion_linea' perpendicularmente sobre la cota (use bbox para verificar). Usa el " +
+            "estilo indicado o el actual, y la capa del concepto 'cotas' del estándar LPS si no se da otra.";
 
         public bool RequiresDocument => true;
 
@@ -50,57 +57,63 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
         public bool RunsOnPipeThread => false;
 
+        private const string ItemSchema = @"{
+        ""type"": ""object"",
+        ""properties"": {
+          ""tipo"": { ""type"": ""string"", ""enum"": [""lineal"", ""alineada""], ""description"": ""Opcional si se indica 'tipo' en la raíz como defecto."" },
+          ""p1"": { ""type"": ""array"", ""items"": { ""type"": ""number"" }, ""minItems"": 2, ""maxItems"": 3 },
+          ""p2"": { ""type"": ""array"", ""items"": { ""type"": ""number"" }, ""minItems"": 2, ""maxItems"": 3 },
+          ""posicion_linea"": { ""type"": ""array"", ""items"": { ""type"": ""number"" }, ""minItems"": 2, ""maxItems"": 3 },
+          ""rotacion"": { ""type"": ""number"", ""default"": 0 },
+          ""estilo"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 255 },
+          ""escala_global"": { ""type"": ""number"", ""exclusiveMinimum"": 0 },
+          ""texto_sustituto"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 500 }
+        },
+        ""required"": [""p1"", ""p2"", ""posicion_linea""],
+        ""additionalProperties"": false
+      }";
+
         public JsonElement InputSchema { get; } = Schema.Parse(@"{
   ""type"": ""object"",
   ""properties"": {
-    ""tipo"": { ""type"": ""string"", ""enum"": [""lineal"", ""alineada""], ""description"": ""'lineal' = RotatedDimension (dirección fijada por 'rotacion'); 'alineada' = AlignedDimension paralela a p1-p2."" },
-    ""p1"": { ""type"": ""array"", ""items"": { ""type"": ""number"" }, ""minItems"": 2, ""maxItems"": 3, ""description"": ""Origen de la primera línea de referencia [x, y] o [x, y, z] (WCS)."" },
+    ""tipo"": { ""type"": ""string"", ""enum"": [""lineal"", ""alineada""], ""description"": ""'lineal' = RotatedDimension (dirección fijada por 'rotacion'); 'alineada' = AlignedDimension paralela a p1-p2. En modo lote ('cotas') actúa como valor por defecto."" },
+    ""p1"": { ""type"": ""array"", ""items"": { ""type"": ""number"" }, ""minItems"": 2, ""maxItems"": 3, ""description"": ""Origen de la primera línea de referencia [x, y] o [x, y, z] (WCS). Forma simple: no combinar con cotas."" },
     ""p2"": { ""type"": ""array"", ""items"": { ""type"": ""number"" }, ""minItems"": 2, ""maxItems"": 3, ""description"": ""Origen de la segunda línea de referencia; distinto de p1."" },
     ""posicion_linea"": { ""type"": ""array"", ""items"": { ""type"": ""number"" }, ""minItems"": 2, ""maxItems"": 3, ""description"": ""Punto por el que pasa la línea de cota."" },
     ""rotacion"": { ""type"": ""number"", ""default"": 0, ""description"": ""Solo tipo 'lineal': dirección de la línea de cota en grados (0 = horizontal, 90 = vertical)."" },
-    ""estilo"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 255, ""description"": ""Nombre de un estilo de cota existente (sin distinguir mayúsculas); si no existe, NOT_FOUND con la lista de estilos disponibles (data.disponibles). Por defecto, el actual. Crear estilos nuevos: estilo_cota."" },
-    ""escala_global"": { ""type"": ""number"", ""exclusiveMinimum"": 0, ""description"": ""Escala global (DIMSCALE) de ESTA cota, como override de la del estilo (> 0). Sin él, se usa la del estilo."" },
+    ""estilo"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 255, ""description"": ""Nombre de un estilo de cota existente (sin distinguir mayúsculas); si no existe, NOT_FOUND con la lista de estilos disponibles (data.disponibles). Por defecto, el actual. En lote actúa como valor por defecto."" },
+    ""escala_global"": { ""type"": ""number"", ""exclusiveMinimum"": 0, ""description"": ""Escala global (DIMSCALE) de la cota, como override de la del estilo (> 0). En lote actúa como valor por defecto."" },
     ""texto_sustituto"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 500, ""description"": ""Texto literal que sustituye a la medida; '<>' representa la medida real (p. ej. '<> m')."" },
+    ""cotas"": { ""type"": ""array"", ""minItems"": 1, ""maxItems"": 100, ""items"": " + ItemSchema + @", ""description"": ""Modo lote (excluyente con p1/p2/posicion_linea/rotacion/texto_sustituto): 1 a 100 cotas creadas en un solo paso de deshacer, compartiendo capa, espacio, forzar y respuesta. Cada elemento hereda tipo, estilo y escala_global de la raíz si los omite."" },
     ""capa"": " + DrawWrite.SchemaCapa + @",
     ""espacio"": " + DrawWrite.SchemaEspacio + @",
     ""forzar"": " + DrawWrite.SchemaForzar + @",
-    ""aceptar_sin_unidades"": " + DrawWrite.SchemaAceptarSinUnidades + @"
+    ""aceptar_sin_unidades"": " + DrawWrite.SchemaAceptarSinUnidades + @",
+    ""respuesta"": " + PrimitiveSupport.SchemaRespuesta + @"
   },
-  ""required"": [""tipo"", ""p1"", ""p2"", ""posicion_linea""],
   ""additionalProperties"": false
 }");
 
-        public JsonElement? OutputSchema { get; } = Schema.Parse(@"{
-  ""type"": ""object"",
-  ""properties"": {
-    ""pid"": { ""type"": ""integer"" },
-    ""handles"": { ""type"": ""array"", ""items"": { ""type"": ""string"" } },
-    ""entidad"": { ""type"": ""object"", ""properties"": {
-      ""handle"": { ""type"": ""string"" },
-      ""tipo"": { ""type"": ""string"" },
-      ""medida"": { ""type"": [""number"", ""null""] },
-      ""estilo"": { ""type"": ""string"" },
-      ""texto"": { ""type"": ""string"" },
-      ""p1"": { ""type"": ""array"" },
-      ""p2"": { ""type"": ""array"" },
-      ""posicion_linea"": { ""type"": ""array"" },
-      ""bbox"": { ""type"": [""array"", ""null""] },
-      ""escala_global"": { ""type"": [""number"", ""null""], ""description"": ""DIMSCALE efectivo de la cota (null si no se puede leer)."" } } },
-    ""capa"": { ""type"": ""string"" },
-    ""capa_creada"": { ""type"": ""boolean"" },
-    ""espacio"": { ""type"": ""string"" },
-    ""insunits"": { ""type"": ""integer"" },
-    ""unidades"": { ""type"": ""string"" },
-    ""advertencias"": { ""type"": ""array"", ""items"": { ""type"": ""string"" } }
-  },
-  ""required"": [""pid"", ""handles"", ""entidad"", ""capa"", ""capa_creada"", ""espacio"", ""insunits"", ""unidades"", ""advertencias""]
-}");
+        public JsonElement? OutputSchema { get; } = PrimitiveSupport.OutputSchema(@"{
+      ""type"": ""object"",
+      ""properties"": {
+        ""handle"": { ""type"": ""string"" },
+        ""tipo"": { ""type"": ""string"" },
+        ""medida"": { ""type"": [""number"", ""null""] },
+        ""estilo"": { ""type"": ""string"" },
+        ""texto"": { ""type"": ""string"" },
+        ""p1"": { ""type"": ""array"" },
+        ""p2"": { ""type"": ""array"" },
+        ""posicion_linea"": { ""type"": ""array"" },
+        ""bbox"": { ""type"": [""array"", ""null""] },
+        ""escala_global"": { ""type"": [""number"", ""null""], ""description"": ""DIMSCALE efectivo de la cota (null si no se puede leer)."" }
+      }
+    }");
 
-        private sealed class CotaParams
+        private sealed class CotaItem
         {
-            public CotaParams(string tipo, Point3 p1, Point3 p2, Point3 linea, double rotacion, string? estilo, string? texto, DrawWrite.Common common, double? escala)
+            public CotaItem(string tipo, Point3 p1, Point3 p2, Point3 linea, double rotacion, string? estilo, string? texto, double? escala)
             {
-                Escala = escala;
                 Tipo = tipo;
                 P1 = p1;
                 P2 = p2;
@@ -108,7 +121,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 Rotacion = rotacion;
                 Estilo = estilo;
                 Texto = texto;
-                Common = common;
+                Escala = escala;
             }
 
             public string Tipo { get; }
@@ -118,17 +131,25 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             public double Rotacion { get; }
             public string? Estilo { get; }
             public string? Texto { get; }
-            public DrawWrite.Common Common { get; }
 
             /// <summary>escala_global: override DIMSCALE de la cota; null = la del estilo.</summary>
             public double? Escala { get; }
         }
 
-        private static string[] BuildAllowed()
+        private sealed class CotaParams
         {
-            var list = new List<string>(Own);
-            list.AddRange(DrawWrite.CommonParams);
-            return list.ToArray();
+            public CotaParams(List<CotaItem> items, bool batch, DrawWrite.Common common, string respuesta)
+            {
+                Items = items;
+                Batch = batch;
+                Common = common;
+                Respuesta = respuesta;
+            }
+
+            public List<CotaItem> Items { get; }
+            public bool Batch { get; }
+            public DrawWrite.Common Common { get; }
+            public string Respuesta { get; }
         }
 
         public void ValidateParams(JsonElement parameters) => Parse(parameters);
@@ -137,41 +158,108 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         private static CotaParams Parse(JsonElement p)
         {
             ParamReader.RequireObject(p, Allowed);
-            if (!ParamReader.Has(p, "tipo"))
+            bool hasBatch = ParamReader.Has(p, "cotas");
+            bool hasSimpleOnly = ParamReader.Has(p, "p1") || ParamReader.Has(p, "p2")
+                || ParamReader.Has(p, "posicion_linea") || ParamReader.Has(p, "rotacion")
+                || ParamReader.Has(p, "texto_sustituto");
+            if (hasBatch && hasSimpleOnly)
             {
-                throw ToolException.InvalidParams("tipo: obligatorio");
+                throw ToolException.InvalidParams(
+                    "cotas: no se puede combinar con p1, p2, posicion_linea, rotacion o texto_sustituto (tipo, estilo y escala_global sí sirven como defecto)");
             }
 
-            string tipo = ParamReader.OptionalEnum(p, "tipo", Tipos)!;
-            Point3 p1 = ParamReader.RequiredPoint(p, "p1");
-            Point3 p2 = ParamReader.RequiredPoint(p, "p2");
-            Point3 linea = ParamReader.RequiredPoint(p, "posicion_linea");
-            if (p1.Distance(p2) <= CoincidenceTol)
-            {
-                throw ToolException.InvalidParams(CoincidentPoints);
-            }
+            string? defTipo = ParamReader.Has(p, "tipo") ? ParamReader.OptionalEnum(p, "tipo", Tipos) : null;
+            string? defEstilo = ParamReader.OptionalString(p, "estilo", 1, 255);
+            double? defEscala = ParamReader.OptionalNumber(p, "escala_global", 0, double.PositiveInfinity, exclusiveMin: true);
 
-            double rotacion = 0.0;
-            if (p.TryGetProperty("rotacion", out JsonElement rotEl))
+            var items = new List<CotaItem>();
+            if (hasBatch)
             {
-                if (string.Equals(tipo, Alineada, StringComparison.Ordinal))
+                JsonElement arr = p.GetProperty("cotas");
+                if (arr.ValueKind != JsonValueKind.Array)
                 {
-                    throw ToolException.InvalidParams(RotationOnlyLinear);
+                    throw ToolException.InvalidParams("cotas: debe ser un array de 1 a 100 objetos {p1, p2, posicion_linea, ...}");
                 }
 
-                if (rotEl.ValueKind != JsonValueKind.Number || !rotEl.TryGetDouble(out rotacion) || !double.IsFinite(rotacion))
+                int n = arr.GetArrayLength();
+                if (n < 1 || n > MaxItems)
                 {
-                    throw ToolException.InvalidParams("rotacion: debe ser un número finito (grados)");
+                    throw ToolException.InvalidParams("cotas: debe tener entre 1 y 100 elementos");
+                }
+
+                int i = 0;
+                foreach (JsonElement el in arr.EnumerateArray())
+                {
+                    string prefix = "cotas[" + i.ToString(CultureInfo.InvariantCulture) + "].";
+                    if (el.ValueKind != JsonValueKind.Object)
+                    {
+                        throw ToolException.InvalidParams(prefix.TrimEnd('.') + ": debe ser un objeto {p1, p2, posicion_linea, ...}");
+                    }
+
+                    ParamReader.RejectUnknown(el, ItemAllowed, prefix);
+                    items.Add(ParseItem(el, prefix, defTipo, defEstilo, defEscala));
+                    i++;
                 }
             }
+            else
+            {
+                items.Add(ParseItem(p, "", null, null, null));
+            }
 
-            string? estilo = ParamReader.OptionalString(p, "estilo", 1, 255);
-            string? texto = ParamReader.Has(p, "texto_sustituto")
-                ? ParamReader.RequiredText(p, "texto_sustituto", 1, MaxOverrideLength)
-                : null;
             DrawWrite.Common common = DrawWrite.ReadCommon(p, Concepto);
-            double? escala = ParamReader.OptionalNumber(p, "escala_global", 0, double.PositiveInfinity, exclusiveMin: true);
-            return new CotaParams(tipo, p1, p2, linea, rotacion, estilo, texto, common, escala);
+            string respuesta = PrimitiveSupport.ReadRespuesta(p);
+            return new CotaParams(items, hasBatch, common, respuesta);
+        }
+
+        private static CotaItem ParseItem(
+            JsonElement src, string prefix, string? defTipo, string? defEstilo, double? defEscala)
+        {
+            try
+            {
+                string? tipo = ParamReader.Has(src, "tipo")
+                    ? ParamReader.OptionalEnum(src, "tipo", Tipos)
+                    : defTipo;
+                if (tipo == null)
+                {
+                    throw ToolException.InvalidParams("tipo: obligatorio");
+                }
+
+                Point3 p1 = ParamReader.RequiredPoint(src, "p1");
+                Point3 p2 = ParamReader.RequiredPoint(src, "p2");
+                Point3 linea = ParamReader.RequiredPoint(src, "posicion_linea");
+                if (p1.Distance(p2) <= CoincidenceTol)
+                {
+                    throw ToolException.InvalidParams(CoincidentPoints);
+                }
+
+                double rotacion = 0.0;
+                if (src.TryGetProperty("rotacion", out JsonElement rotEl))
+                {
+                    if (string.Equals(tipo, Alineada, StringComparison.Ordinal))
+                    {
+                        throw ToolException.InvalidParams(RotationOnlyLinear);
+                    }
+
+                    if (rotEl.ValueKind != JsonValueKind.Number || !rotEl.TryGetDouble(out rotacion) || !double.IsFinite(rotacion))
+                    {
+                        throw ToolException.InvalidParams("rotacion: debe ser un número finito (grados)");
+                    }
+                }
+
+                string? estilo = ParamReader.OptionalString(src, "estilo", 1, 255) ?? defEstilo;
+                string? texto = ParamReader.Has(src, "texto_sustituto")
+                    ? ParamReader.RequiredText(src, "texto_sustituto", 1, MaxOverrideLength)
+                    : null;
+                double? escala = ParamReader.Has(src, "escala_global")
+                    ? ParamReader.OptionalNumber(src, "escala_global", 0, double.PositiveInfinity, exclusiveMin: true)
+                    : defEscala;
+                return new CotaItem(tipo, p1, p2, linea, rotacion, estilo, texto, escala);
+            }
+            catch (ToolException ex) when (prefix.Length > 0 && ex.Code == ErrorCodes.InvalidParams)
+            {
+                string detalle = ex.ExtraData.TryGetValue("detalle", out object? d) ? d?.ToString() ?? "" : "";
+                throw ToolException.InvalidParams(prefix + detalle);
+            }
         }
 
         public object Execute(JsonElement parameters, ExecutionContext ctx)
@@ -182,13 +270,27 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
             List<string> warnings = AcadUtil.UnitWarnings(db);
             int ins = DrawWrite.CheckUnits(db, p.Common.AceptarSinUnidades, warnings);                       // R2
-            BBox2 box = BBox2.FromPoints(new[] { p.P1, p.P2, p.Linea });
-            PlacementCheck.Run(db, p.Common.Espacio, new[] { box }, p.Common.Forzar, "entidades", warnings); // R4/R5
+            var boxes = new List<BBox2>(p.Items.Count);
+            foreach (CotaItem item in p.Items)
+            {
+                boxes.Add(BBox2.FromPoints(new[] { item.P1, item.P2, item.Linea }));
+            }
 
-            // Estilo ANTES del UndoGroup (lectura): un NOT_FOUND no crea paso de deshacer.
+            PlacementCheck.Run(db, p.Common.Espacio, boxes, p.Common.Forzar, p.Batch ? "cotas" : "entidades", warnings); // R4/R5
+
+            // Estilos ANTES del UndoGroup (lectura): un NOT_FOUND no crea paso de deshacer.
             using (Transaction ro = db.TransactionManager.StartOpenCloseTransaction())
             {
-                ResolveStyle(db, ro, p.Estilo);
+                var checkedStyles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (CotaItem item in p.Items)
+                {
+                    string key = item.Estilo ?? "";
+                    if (checkedStyles.Add(key))
+                    {
+                        ResolveStyle(db, ro, item.Estilo);
+                    }
+                }
+
                 ro.Commit();
             }
 
@@ -268,93 +370,113 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             {
                 SpaceResolver.ResolvedSpace resolved = SpaceResolver.Resolve(db, tr, p.Common.Espacio);    // R5
                 DrawLayerFactory.Result layer = DrawLayerFactory.Ensure(db, tr, p.Common.Capa, Concepto, warnings); // R3
-                (ObjectId styleId, string styleName) = ResolveStyle(db, tr, p.Estilo);
-
-                string dimText = p.Texto == null ? "" : TextEscape.EscapeDbText(p.Texto);   // R7; '<>' se conserva
-                Point3d a = AcadUtil.ToPoint3d(p.P1);
-                Point3d b = AcadUtil.ToPoint3d(p.P2);
-                Point3d l = AcadUtil.ToPoint3d(p.Linea);
-
-                Dimension dim = string.Equals(p.Tipo, Lineal, StringComparison.Ordinal)
-                    ? new RotatedDimension(Normalize360(p.Rotacion) * Math.PI / 180.0, a, b, l, dimText, styleId)
-                    : new AlignedDimension(a, b, l, dimText, styleId);
-
-                DrawWrite.ApplyByLayer(dim, db, layer.Id);
-                if (!styleId.IsNull)
-                {
-                    // SetDatabaseDefaults (en ApplyByLayer) podría fijar el estilo actual: se reafirma el pedido.
-                    dim.DimensionStyle = styleId;
-                }
-
-                if (p.Escala.HasValue)
-                {
-                    // Anotativo: la escala la gobierna la escala de anotación; DIMSCALE no se aplica (se avisa).
-                    bool anotativo = dim.Annotative == AnnotativeStates.True
-                        || ((DimStyleTableRecord)tr.GetObject(styleId, OpenMode.ForRead)).Annotative == AnnotativeStates.True;
-                    if (anotativo)
-                    {
-                        warnings.Add("escala_global ignorada: la cota o su estilo es anotativo (la escala la fija la escala de anotación).");
-                    }
-                    else
-                    {
-                        dim.Dimscale = p.Escala.Value;   // override de esta cota (después del estilo)
-                    }
-                }
-
                 var space = (BlockTableRecord)tr.GetObject(resolved.Btr.ObjectId, OpenMode.ForWrite);
-                string handle = DrawWrite.Append(space, tr, dim);
+                var styleCache = new Dictionary<string, (ObjectId Id, string Name, bool Annotative)>(StringComparer.OrdinalIgnoreCase);
+                bool warnedAnnotative = false;
 
-                try
+                var handles = new List<string>(p.Items.Count);
+                var entidades = new List<object>(p.Items.Count);
+
+                foreach (CotaItem item in p.Items)
                 {
-                    dim.RecomputeDimensionBlock(true);
-                }
-                catch (AcRuntimeException)
-                {
-                    // Sin bloque de cota regenerado: la medida y la caja se leen igualmente (pueden salir null).
+                    string styleKey = item.Estilo ?? "";
+                    if (!styleCache.TryGetValue(styleKey, out (ObjectId Id, string Name, bool Annotative) styleInfo))
+                    {
+                        (ObjectId id, string name) = ResolveStyle(db, tr, item.Estilo);
+                        bool annotative = !id.IsNull && ((DimStyleTableRecord)tr.GetObject(id, OpenMode.ForRead)).Annotative == AnnotativeStates.True;
+                        styleInfo = (id, name, annotative);
+                        styleCache[styleKey] = styleInfo;
+                    }
+
+                    string dimText = item.Texto == null ? "" : TextEscape.EscapeDbText(item.Texto);   // R7; '<>' se conserva
+                    Point3d a = AcadUtil.ToPoint3d(item.P1);
+                    Point3d b = AcadUtil.ToPoint3d(item.P2);
+                    Point3d l = AcadUtil.ToPoint3d(item.Linea);
+
+                    Dimension dim = string.Equals(item.Tipo, Lineal, StringComparison.Ordinal)
+                        ? new RotatedDimension(Normalize360(item.Rotacion) * Math.PI / 180.0, a, b, l, dimText, styleInfo.Id)
+                        : new AlignedDimension(a, b, l, dimText, styleInfo.Id);
+
+                    DrawWrite.ApplyByLayer(dim, db, layer.Id);
+                    if (!styleInfo.Id.IsNull)
+                    {
+                        // SetDatabaseDefaults (en ApplyByLayer) podría fijar el estilo actual: se reafirma el pedido.
+                        dim.DimensionStyle = styleInfo.Id;
+                    }
+
+                    if (item.Escala.HasValue)
+                    {
+                        // Anotativo: la escala la gobierna la escala de anotación; DIMSCALE no se aplica (se avisa).
+                        bool anotativo = dim.Annotative == AnnotativeStates.True || styleInfo.Annotative;
+                        if (anotativo)
+                        {
+                            if (!warnedAnnotative)
+                            {
+                                warnings.Add("escala_global ignorada: la cota o su estilo es anotativo (la escala la fija la escala de anotación).");
+                                warnedAnnotative = true;
+                            }
+                        }
+                        else
+                        {
+                            dim.Dimscale = item.Escala.Value;   // override de esta cota (después del estilo)
+                        }
+                    }
+
+                    string handle = DrawWrite.Append(space, tr, dim);
+                    handles.Add(handle);
+
+                    try
+                    {
+                        dim.RecomputeDimensionBlock(true);
+                    }
+                    catch (AcRuntimeException)
+                    {
+                        // Sin bloque de cota regenerado: la medida y la caja se leen igualmente (pueden salir null).
+                    }
+
+                    double? measurement = null;
+                    try
+                    {
+                        double m = dim.Measurement;
+                        measurement = double.IsFinite(m) ? m : null;
+                    }
+                    catch (AcRuntimeException)
+                    {
+                        measurement = null;
+                    }
+
+                    Point3d x1 = a, x2 = b, dl = l;
+                    if (dim is RotatedDimension rd)
+                    {
+                        x1 = rd.XLine1Point;
+                        x2 = rd.XLine2Point;
+                        dl = rd.DimLinePoint;
+                    }
+                    else if (dim is AlignedDimension ad)
+                    {
+                        x1 = ad.XLine1Point;
+                        x2 = ad.XLine2Point;
+                        dl = ad.DimLinePoint;
+                    }
+
+                    BBox2? bbox = AcadUtil.TryBBox2(dim);
+                    entidades.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        ["handle"] = handle,
+                        ["tipo"] = item.Tipo,
+                        ["medida"] = measurement,
+                        ["estilo"] = styleInfo.Name,
+                        ["texto"] = item.Texto ?? "",
+                        ["p1"] = AcadUtil.ToArray(x1),
+                        ["p2"] = AcadUtil.ToArray(x2),
+                        ["posicion_linea"] = AcadUtil.ToArray(dl),
+                        ["bbox"] = bbox?.ToArray2D(),
+                        ["escala_global"] = AcadUtil.NumberOrNull(dim.Dimscale),
+                    });
                 }
 
-                double? measurement = null;
-                try
-                {
-                    double m = dim.Measurement;
-                    measurement = double.IsFinite(m) ? m : null;
-                }
-                catch (AcRuntimeException)
-                {
-                    measurement = null;
-                }
-
-                Point3d x1 = a, x2 = b, dl = l;
-                if (dim is RotatedDimension rd)
-                {
-                    x1 = rd.XLine1Point;
-                    x2 = rd.XLine2Point;
-                    dl = rd.DimLinePoint;
-                }
-                else if (dim is AlignedDimension ad)
-                {
-                    x1 = ad.XLine1Point;
-                    x2 = ad.XLine2Point;
-                    dl = ad.DimLinePoint;
-                }
-
-                BBox2? bbox = AcadUtil.TryBBox2(dim);
-                var entity = new Dictionary<string, object?>(StringComparer.Ordinal)
-                {
-                    ["handle"] = handle,
-                    ["tipo"] = p.Tipo,
-                    ["medida"] = measurement,
-                    ["estilo"] = styleName,
-                    ["texto"] = p.Texto ?? "",
-                    ["p1"] = AcadUtil.ToArray(x1),
-                    ["p2"] = AcadUtil.ToArray(x2),
-                    ["posicion_linea"] = AcadUtil.ToArray(dl),
-                    ["bbox"] = bbox?.ToArray2D(),
-                    ["escala_global"] = AcadUtil.NumberOrNull(dim.Dimscale),
-                };
-
-                Dictionary<string, object?> result = DrawWrite.Response(pid, new List<string> { handle }, layer, resolved.Name, ins, warnings);
-                result["entidad"] = entity;
+                Dictionary<string, object?> result = DrawWrite.Response(pid, handles, layer, resolved.Name, ins, warnings);
+                PrimitiveSupport.PutEntities(result, entidades, p.Batch, p.Respuesta);
                 tr.Commit();
                 return result;
             }

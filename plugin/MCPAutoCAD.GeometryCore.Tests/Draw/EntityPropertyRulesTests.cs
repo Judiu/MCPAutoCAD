@@ -173,5 +173,36 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
             Assert.Equal(500, EntityPropertyRules.MaxHandles);
             Assert.Equal(90.0, EntityPropertyRules.MaxTransparencyPercent);
         }
+
+        [Theory]
+        [InlineData(1, "acad.lin")]
+        [InlineData(0, "acadiso.lin")]
+        public void FicheroAlternativoSegunMeasurement(int measurement, string esperado)
+        {
+            Assert.Equal(esperado, EntityPropertyRules.AlternateLinetypeFileFor(measurement));
+        }
+
+        [Theory]
+        [InlineData("acadiso.lin", true)]
+        [InlineData("ACAD.LIN", true)]
+        [InlineData(" acadiso.lin ", true)]
+        [InlineData("../acad.lin", false)]
+        [InlineData(@"C:\acad.lin", false)]
+        [InlineData("otro.lin", false)]
+        [InlineData("", false)]
+        [InlineData(null, false)]
+        public void ArchivoDeTipoDeLineaPermitido(string? archivo, bool esperado)
+        {
+            Assert.Equal(esperado, EntityPropertyRules.IsAllowedStandardLinetypeFile(archivo));
+        }
+
+        [Fact]
+        public void LinetypeFilesToTry_OrdenYValidacion()
+        {
+            Assert.Equal(new[] { "acadiso.lin", "acad.lin" }, EntityPropertyRules.LinetypeFilesToTry(1, null));
+            Assert.Equal(new[] { "acad.lin", "acadiso.lin" }, EntityPropertyRules.LinetypeFilesToTry(0, ""));
+            Assert.Equal(new[] { "acad.lin" }, EntityPropertyRules.LinetypeFilesToTry(1, "ACAD.LIN"));
+            Assert.Throws<ArgumentException>(() => EntityPropertyRules.LinetypeFilesToTry(1, "../acad.lin"));
+        }
     }
 }

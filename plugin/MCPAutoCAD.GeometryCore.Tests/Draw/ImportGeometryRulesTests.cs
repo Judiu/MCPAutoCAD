@@ -84,7 +84,7 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
         [InlineData("line", true)]
         [InlineData("INSERT", true)]
         [InlineData("XREF", false)]
-        [InlineData("DIMENSION", false)]
+        [InlineData("DIMENSION", true)]
         [InlineData("POLYLINE3D", false)]
         [InlineData("3DFACE", false)]
         [InlineData("IMAGE", false)]
@@ -104,7 +104,7 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
             Assert.True(ImportGeometryRules.Selecciona("INSERT", "MAXI-VIA", filtro));
             Assert.False(ImportGeometryRules.Selecciona("XREF", "MAXI-VIA", filtro));
             Assert.True(ImportGeometryRules.Selecciona("CIRCLE", "0", null));
-            Assert.False(ImportGeometryRules.Selecciona("DIMENSION", "0", null));
+            Assert.True(ImportGeometryRules.Selecciona("DIMENSION", "0", null));
         }
 
         // ---- filtro ----
@@ -169,14 +169,15 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
             ImportGeometryRules.ImportPlan plan = ImportGeometryRules.Plan(Archivo(), null, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
 
             Assert.Equal(8, plan.Total);
-            Assert.Equal(6, plan.Seleccionadas);
+            Assert.Equal(7, plan.Seleccionadas);
             Assert.Equal(3, plan.PorTipo["LWPOLYLINE"]);
             Assert.Equal(1, plan.PorTipo["CIRCLE"]);
             Assert.Equal(1, plan.PorTipo["MTEXT"]);
             Assert.Equal(1, plan.PorTipo["HATCH"]);
+            Assert.Equal(1, plan.PorTipo["DIMENSION"]);
             Assert.False(plan.PorTipo.ContainsKey("IMAGE"));
             Assert.Equal(1, plan.Omitidas["IMAGE"]);
-            Assert.Equal(1, plan.Omitidas["DIMENSION"]);
+            Assert.False(plan.Omitidas.ContainsKey("DIMENSION"));
             Assert.Equal(0, plan.ExcluidasPorCapa);
             Assert.Equal(2, plan.PorCapa["MAXI-VIA"]);
             Assert.False(plan.Excede);
@@ -204,7 +205,7 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
             ImportGeometryRules.ImportPlan plan = ImportGeometryRules.Plan(Archivo(), null, destino);
 
             Assert.Equal(new[] { "MAXI-VIA", "0" }, plan.CapasExistentes);
-            Assert.Equal(new[] { "MAXI-PUNTOS", "MAXI-TEXTO-TRAZO", "MAXI-ACHURADO" }, plan.CapasNuevas);
+            Assert.Equal(new[] { "MAXI-PUNTOS", "MAXI-TEXTO-TRAZO", "MAXI-COTAS", "MAXI-ACHURADO" }, plan.CapasNuevas);
         }
 
         [Fact]
@@ -582,6 +583,34 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
         {
             string m = ImportGeometryRules.MensajeCapasInvalidas("x.dxf", new List<(string, char)> { ("A|B", '|') });
             Assert.Contains("Causa probable", m);
+        }
+
+        [Fact]
+        public void LotesPonderados_SeparaInsertsPesadosYMantieneGrupos()
+        {
+            // Índices 0..4 con pesos: [1000, 1200, 500, 2500, 1] y tope 2000:
+            // - lote 0: [0] (1000) porque 1000+1200 > 2000
+            // - lote 1: [1, 2] (1700)
+            // - lote 2: [3] (2500 > 2000 va solo)
+            // - lote 3: [4] (1)
+            int[] pesos = { 1000, 1200, 500, 2500, 1 };
+            List<List<int>> lotes = ImportGeometryRules.LotesPonderados(5, pesos, null, 2000);
+            Assert.Equal(4, lotes.Count);
+            Assert.Equal(new[] { 0 }, lotes[0]);
+            Assert.Equal(new[] { 1, 2 }, lotes[1]);
+            Assert.Equal(new[] { 3 }, lotes[2]);
+            Assert.Equal(new[] { 4 }, lotes[3]);
+        }
+
+        [Fact]
+        public void TooManyEffectiveEntities_InformaModeloYBloques()
+        {
+            Assert.Equal(20000, ImportGeometryRules.MaxEffectiveEntities);
+            string msg = ImportGeometryRules.TooManyEffectiveEntities(7310, 18000);
+            Assert.Contains("25310", msg);
+            Assert.Contains("7310", msg);
+            Assert.Contains("18000", msg);
+            Assert.Contains("20000", msg);
         }
     }
 }

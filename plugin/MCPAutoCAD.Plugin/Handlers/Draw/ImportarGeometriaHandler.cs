@@ -42,11 +42,11 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
         public string Description =>
             "ESCRIBE en el dibujo: importa como entidades nativas del espacio modelo las de un DXF local (LINE, LWPOLYLINE, POLYLINE 2D, "
-            + "CIRCLE, ARC, ELLIPSE, SPLINE, POINT, TEXT, MTEXT, HATCH, SOLID e INSERT con su definición de bloque y atributos). "
-            + "Sin confirmar:true solo previsualiza y NO escribe nada (conteos por tipo y capa, capas y bloques nuevos, extensión, "
-            + "unidades y colocación). Con confirmar:true importa en un solo paso de deshacer (CTRL+Z). Máximo 10000 entidades por "
-            + "llamada: para más, filtrar_capas o páginas con desde. Cotas, 3D, xrefs e imágenes se omiten y se cuentan; el DXF no "
-            + "se modifica. Una llamada cada vez: otra simultánea devuelve BUSY sin escribir.";
+            + "CIRCLE, ARC, ELLIPSE, SPLINE, POINT, TEXT, MTEXT, HATCH, SOLID, DIMENSION e INSERT con su definición de bloque y atributos). "
+            + "Sin confirmar:true solo previsualiza y NO escribe nada (conteos por tipo, capa, entidades dentro de bloques, capas y bloques nuevos, "
+            + "extensión, unidades y colocación). Con confirmar:true importa en un solo paso de deshacer (CTRL+Z). Máximo 10000 entidades "
+            + "de primer nivel y 20000 efectivas (modelo + bloques nuevos) por llamada: para más, filtrar_capas o páginas con desde. 3D, xrefs e imágenes "
+            + "se omiten y se cuentan; el DXF no se modifica. Una llamada cada vez: otra simultánea devuelve BUSY sin escribir.";
 
         public bool RequiresDocument => true;
 
@@ -106,6 +106,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     ""faltantes_por_tipo"": { ""type"": ""object"" },
     ""bloques_nuevos"": { ""type"": ""array"", ""items"": { ""type"": ""string"" }, ""description"": ""Definiciones de bloque (de los INSERT importados) que no existen en el dibujo."" },
     ""bloques_existentes"": { ""type"": ""array"", ""items"": { ""type"": ""string"" }, ""description"": ""Bloques que ya existen en el dibujo: se usa la definición del dibujo, no la del DXF."" },
+    ""n_entidades_en_bloques"": { ""type"": ""integer"", ""description"": ""Entidades contenidas dentro de definiciones de bloque nuevas (anidados incluidos) clonadas en esta página."" },
+    ""n_bloques_efectivos"": { ""type"": ""integer"", ""description"": ""Número total de definiciones de bloque nuevas distintas (incluyendo anidadas) en esta página."" },
+    ""n_entidades_efectivas"": { ""type"": ""integer"", ""description"": ""Carga efectiva de clonado = n + n_entidades_en_bloques (límite 20000)."" },
     ""insunits"": { ""type"": ""integer"" },
     ""unidades"": { ""type"": ""string"" },
     ""insunits_archivo"": { ""type"": ""integer"" },
@@ -374,6 +377,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                     return "POLYMESH";   // malla: no es polilínea 2D y no se importa
                 case Solid:
                     return "SOLID";
+                case Dimension:
+                    return "DIMENSION";
                 default:
                     return AcadUtil.DxfName(e);
             }
@@ -400,6 +405,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
             /// <summary>INSERT: nombre de la definición (la dinámica, si lo es); null en el resto.</summary>
             public string? Bloque { get; set; }
+
+            /// <summary>INSERT: ObjectId de la definición en la base lateral; ObjectId.Null si no aplica.</summary>
+            public ObjectId DefId { get; set; } = ObjectId.Null;
 
             /// <summary>Normal distinta de +Z o cota Z distinta de cero (solo entidades seleccionadas).</summary>
             public bool FueraDePlano { get; set; }
@@ -445,6 +453,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
                     string tipo = TipoDe(e);
                     string? bloque = null;
+                    ObjectId bloqueDefId = ObjectId.Null;
                     if (e is BlockReference br)
                     {
                         // Fallo 42: un INSERT se importa con su definición; el de un xref no (se cuenta como XREF omitido).
@@ -463,12 +472,13 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                             else
                             {
                                 bloque = def.Name;
+                                bloqueDefId = def.ObjectId;
                             }
                         }
                     }
 
                     string capa = e.Layer;
-                    var elemento = new Elemento(id, tipo, capa) { Bloque = bloque };
+                    var elemento = new Elemento(id, tipo, capa) { Bloque = bloque, DefId = bloqueDefId };
                     esc.Todos.Add(elemento);
                     if (ImportRules.Selecciona(tipo, capa, filtro))
                     {
@@ -602,6 +612,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 case DBPoint d: return d.Normal;
                 case Line l: return l.Normal;
                 case BlockReference b: return b.Normal;
+                case Dimension dim: return dim.Normal;
                 default: return null;
             }
         }
@@ -731,6 +742,10 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
             public List<string> BloquesNuevos { get; set; } = new List<string>();
             public List<string> BloquesExistentes { get; set; } = new List<string>();
+            public int EntidadesEnBloques { get; set; }
+            public int BloquesEfectivos { get; set; }
+            public int EntidadesEfectivas { get; set; }
+            public int[] Pesos { get; set; } = Array.Empty<int>();
         }
 
         /// <summary>Añade el aviso si lo hay (null = nada que avisar).</summary>
@@ -889,6 +904,61 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             if (primeraPagina)
             {
                 AddSi(advertencias, ImportRules.AvisoDefinicionesExistentes("bloques", bloquesExistentes, bloquesDibujo));
+                if (seleccion.Any(s => s.Tipo == "DIMENSION"))
+                {
+                    AddSi(advertencias, ImportRules.AvisoDefinicionesExistentes(
+                        "estilos de cota", NombresDeTabla(side, side.DimStyleTableId), NombresDeTabla(db, db.DimStyleTableId)));
+                }
+            }
+
+            // Fallo 54: contar las entidades dentro de definiciones de bloque nuevas (anidados incluidos) para controlar la
+            // carga real de WblockCloneObjects y dosificar los lotes por peso real.
+            int[] pesos = new int[seleccion.Count];
+            int totalEnBloques = 0;
+            int totalBloquesEfectivos = 0;
+            var blockCache = new Dictionary<ObjectId, BlockScan>();
+            var defsContadas = new HashSet<ObjectId>();
+            using (Transaction sideRo = side.TransactionManager.StartOpenCloseTransaction())
+            {
+                for (int i = 0; i < seleccion.Count; i++)
+                {
+                    pesos[i] = 1;
+                    ObjectId defId = seleccion[i].DefId;
+                    if (defId.IsNull)
+                    {
+                        continue;
+                    }
+
+                    CountBlockTree(sideRo, defId, bloquesDibujo, defsContadas, blockCache, out int entBloque, out int blqNuevos);
+                    totalEnBloques += entBloque;
+                    totalBloquesEfectivos += blqNuevos;
+                    pesos[i] += entBloque;
+                }
+
+                sideRo.Commit();
+            }
+
+            int entidadesEfectivas = seleccion.Count + totalEnBloques;
+            if (entidadesEfectivas > ImportRules.MaxEffectiveEntities)
+            {
+                string errEfectivo = ImportRules.TooManyEffectiveEntities(seleccion.Count, totalEnBloques);
+                if (p.Confirmar)
+                {
+                    throw ToolException.InvalidParams(
+                        errEfectivo,
+                        new Dictionary<string, object?>
+                        {
+                            ["motivo"] = "TOO_LARGE",
+                            ["entidades_modelo"] = seleccion.Count,
+                            ["entidades_en_bloques"] = totalEnBloques,
+                            ["bloques_efectivos"] = totalBloquesEfectivos,
+                            ["entidades_efectivas"] = entidadesEfectivas,
+                            ["maximo_efectivo"] = ImportRules.MaxEffectiveEntities,
+                            ["sugerencia"] = "filtrar_capas o desde",
+                        });
+                }
+
+                advertencias.Add(errEfectivo);
             }
 
             // Un HATCH asociativo cuyo contorno no entra en la importación (o en esta página) se importará no asociativo; el
@@ -935,7 +1005,89 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 Grupos = grupos,
                 BloquesNuevos = bloquesNuevos,
                 BloquesExistentes = bloquesExistentes,
+                EntidadesEnBloques = totalEnBloques,
+                BloquesEfectivos = totalBloquesEfectivos,
+                EntidadesEfectivas = entidadesEfectivas,
+                Pesos = pesos,
             };
+        }
+
+        private sealed record BlockScan(string Name, bool Skip, int DirectEntities, List<ObjectId> NestedDefs);
+
+        private static void CountBlockTree(
+            Transaction tr,
+            ObjectId defId,
+            HashSet<string> bloquesEnDibujo,
+            HashSet<ObjectId> defsContadas,
+            Dictionary<ObjectId, BlockScan> cache,
+            out int entitiesAdded,
+            out int blocksAdded)
+        {
+            entitiesAdded = 0;
+            blocksAdded = 0;
+            if (defId.IsNull || defId.IsErased || !defsContadas.Add(defId))
+            {
+                return;
+            }
+
+            if (!cache.TryGetValue(defId, out BlockScan? scan))
+            {
+                scan = ReadBlockScan(tr, defId);
+                cache[defId] = scan;
+            }
+
+            if (scan.Skip)
+            {
+                return;
+            }
+
+            bool isAnonymous = scan.Name.StartsWith("*", StringComparison.Ordinal);
+            if (!isAnonymous && bloquesEnDibujo.Contains(scan.Name))
+            {
+                return;
+            }
+
+            blocksAdded = 1;
+            entitiesAdded = scan.DirectEntities;
+            foreach (ObjectId nested in scan.NestedDefs)
+            {
+                CountBlockTree(tr, nested, bloquesEnDibujo, defsContadas, cache, out int nEnt, out int nBlq);
+                entitiesAdded += nEnt;
+                blocksAdded += nBlq;
+            }
+        }
+
+        private static BlockScan ReadBlockScan(Transaction tr, ObjectId defId)
+        {
+            if (!(tr.GetObject(defId, OpenMode.ForRead, false) is BlockTableRecord btr)
+                || btr.IsLayout || btr.IsFromExternalReference || btr.IsFromOverlayReference || btr.IsDependent)
+            {
+                return new BlockScan("", true, 0, new List<ObjectId>());
+            }
+
+            int direct = 0;
+            var nested = new List<ObjectId>();
+            foreach (ObjectId id in btr)
+            {
+                if (id.IsNull || id.IsErased)
+                {
+                    continue;
+                }
+
+                direct++;
+                Autodesk.AutoCAD.Runtime.RXClass? cls = id.ObjectClass;
+                if (cls != null && cls.IsDerivedFrom(ClaseInsert)
+                    && tr.GetObject(id, OpenMode.ForRead, false) is BlockReference br)
+                {
+                    ObjectId childDef = br.IsDynamicBlock ? br.DynamicBlockTableRecord : br.BlockTableRecord;
+                    if (!childDef.IsNull)
+                    {
+                        nested.Add(childDef);
+                    }
+                }
+            }
+
+            return new BlockScan(btr.Name, false, direct, nested);
         }
 
         // ---- previsualización (sin confirmar: no escribe) ----
@@ -1023,6 +1175,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                     ["siguiente_desde"] = prep.Pagina.Siguiente,
                 },
                 ["siguiente_desde"] = prep.Pagina.Siguiente,
+                ["n_entidades_en_bloques"] = prep.EntidadesEnBloques,
+                ["n_bloques_efectivos"] = prep.BloquesEfectivos,
+                ["n_entidades_efectivas"] = prep.EntidadesEfectivas,
                 ["advertencias"] = advertencias,
             };
         }
@@ -1077,9 +1232,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 ro.Commit();
             }
 
-            // Fallo 38: lotes de hasta BatchSize entidades (un WblockCloneObjects por lote), todos dentro del mismo paso de
-            // deshacer. Un HATCH asociativo y su contorno van en el mismo lote para conservar la asociación.
-            List<List<int>> lotes = ImportRules.Lotes(prep.Seleccion.Count, prep.Grupos, ImportRules.BatchSize);
+            // Fallo 38 / 54: lotes acotados por peso efectivo (entidad + entidades nuevas dentro de bloques) para evitar
+            // saturar WblockCloneObjects cuando hay cientos de definiciones de bloque pesadas.
+            List<List<int>> lotes = ImportRules.LotesPonderados(prep.Seleccion.Count, prep.Pesos, prep.Grupos, ImportRules.BatchSize);
             var clonados = new Dictionary<ObjectId, ObjectId>();
             int enModeloAntes = ContarEnModelo(db, espacioId);
             for (int k = 0; k < lotes.Count; k++)

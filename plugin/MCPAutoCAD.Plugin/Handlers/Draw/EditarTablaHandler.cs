@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
@@ -24,6 +25,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         {
             "handle", "insertar_filas", "borrar_filas", "insertar_columnas", "borrar_columnas",
             "separar_celdas", "combinar_celdas", "anchos_columnas", "altos_filas", "celdas",
+            "margen_vertical", "margen_horizontal",
             "capa", "estilo", "posicion", "forzar", "aceptar_sin_unidades", "aceptar_perdida_campos",
             "confirmar", "preview",
         };
@@ -179,6 +181,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
       }
     },
     ""celdas"": { ""type"": ""array"", ""minItems"": 1, ""maxItems"": 2500, ""items"": " + EditCellSchema + @" },
+    ""margen_vertical"": { ""type"": ""number"", ""minimum"": 0, ""description"": ""Nuevo margen superior/inferior para las celdas de la tabla (>= 0)."" },
+    ""margen_horizontal"": { ""type"": ""number"", ""minimum"": 0, ""description"": ""Nuevo margen izquierdo/derecho para las celdas de la tabla (>= 0)."" },
     ""capa"": " + DrawWrite.SchemaCapa + @",
     ""estilo"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 255, ""description"": ""Nuevo estilo de tabla existente."" },
     ""posicion"": " + PrimitiveSupport.PointSchema + @",
@@ -204,6 +208,10 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     ""columnas_antes"": { ""type"": ""integer"" },
     ""filas_despues"": { ""type"": ""integer"" },
     ""columnas_despues"": { ""type"": ""integer"" },
+    ""ancho_total"": { ""type"": ""number"" },
+    ""alto_total"": { ""type"": ""number"" },
+    ""anchos_columnas"": { ""type"": ""array"", ""items"": { ""type"": ""number"" } },
+    ""altos_filas"": { ""type"": ""array"", ""items"": { ""type"": ""number"" } },
     ""resumen_cambios"": { ""type"": ""object"" },
     ""bbox"": { ""type"": [""array"", ""null""] },
     ""origen_texto"": { ""type"": ""string"", ""const"": ""contenido_del_plano"" }
@@ -223,6 +231,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             public List<(int Columna, double Ancho)> ColWidths = new List<(int, double)>();
             public List<(int Fila, double Alto)> RowHeights = new List<(int, double)>();
             public List<TableCellSpec> Celdas = new List<TableCellSpec>();
+            public double? MargenVertical;
+            public double? MargenHorizontal;
             public string? Capa;
             public string? Estilo;
             public Point3? Posicion;
@@ -283,6 +293,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             var colWidths = ParseColWidths(p);
             var rowHeights = ParseRowHeights(p);
             var celdas = ParseCells(p);
+            double? margenV = PrimitiveSupport.OptionalNonNegative(p, "margen_vertical");
+            double? margenH = PrimitiveSupport.OptionalNonNegative(p, "margen_horizontal");
 
             string? capa = ParamReader.OptionalString(p, "capa", 1, 255);
             if (capa != null)
@@ -295,7 +307,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
             if (insertRows == null && deleteRows == null && insertCols == null && deleteCols == null
                 && unmerges.Count == 0 && merges.Count == 0 && colWidths.Count == 0 && rowHeights.Count == 0
-                && celdas.Count == 0 && capa == null && estilo == null && posicion == null)
+                && celdas.Count == 0 && !margenV.HasValue && !margenH.HasValue && capa == null && estilo == null && posicion == null)
             {
                 throw ToolException.InvalidParams("editar_tabla: indique al menos una modificación sobre la tabla");
             }
@@ -318,6 +330,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 ColWidths = colWidths,
                 RowHeights = rowHeights,
                 Celdas = celdas,
+                MargenVertical = margenV,
+                MargenHorizontal = margenH,
                 Capa = capa,
                 Estilo = estilo,
                 Posicion = posicion,
@@ -633,6 +647,13 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 }
 
                 table.UpgradeOpen();
+                int actualAnchosModificados = p.ColWidths.Count;
+                int actualAltosModificados = p.RowHeights.Count;
+                double[]? actualCols = null;
+                double[]? actualRows = null;
+                double? actualTotalW = null;
+                double? actualTotalH = null;
+
                 table.SuppressRegenerateTable(true);
                 try
                 {
@@ -689,14 +710,10 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                     // 3. Separar celdas combinadas
                     foreach ((int r, int c) in p.Unmerges)
                     {
-                        Cell cell = table.Cells[r, c];
-                        if (cell.IsMerged == true)
+                        CellRange? mr = TableSupport.TryGetMergeRange(table, r, c);
+                        if (mr != null)
                         {
-                            CellRange mr = cell.GetMergeRange();
-                            if (mr != null && !mr.IsNull && !mr.IsSingleCell)
-                            {
-                                table.UnmergeCells(mr);
-                            }
+                            table.UnmergeCells(mr);
                         }
                     }
 
@@ -709,34 +726,63 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                         }
                     }
 
-                    // 5. Anchos de columna y altos de fila
-                    foreach ((int col, double ancho) in p.ColWidths)
+                    // 5. Estilo antes de márgenes y anchos/altos para no pisarlos
+                    if (!newTableStyleId.IsNull)
                     {
-                        table.Columns[col].Width = ancho;
+                        table.TableStyle = newTableStyleId;
                     }
 
-                    foreach ((int row, double alto) in p.RowHeights)
+                    // 6. Márgenes (explícitos o reducción automática si los márgenes actuales impiden estrechar columnas/filas)
+                    double? applyV = p.MargenVertical;
+                    double? applyH = p.MargenHorizontal;
+                    if (!applyH.HasValue && p.ColWidths.Count > 0)
                     {
-                        table.Rows[row].Height = alto;
+                        (double curV, double curH) = TableSupport.ReadCurrentMargins(table);
+                        double minReqW = p.ColWidths.Min(x => x.Ancho);
+                        double textH = ReadSampleTextHeight(table);
+                        SafeMarginsResult safeH = TableRules.ComputeSafeMargins(curV, curH, minReqW, minReqW, textH, reqVert: curV, reqHoriz: null);
+                        if (safeH.AutoAdjusted && safeH.Horizontal.HasValue)
+                        {
+                            applyH = safeH.Horizontal.Value;
+                            warnings.Add(string.Format(
+                                CultureInfo.InvariantCulture,
+                                "Margen horizontal reducido automáticamente de {0:0.###} a {1:0.###} para respetar ancho(s) pedido(s).",
+                                curH, applyH.Value));
+                        }
                     }
 
-                    // 6. Celdas (protegiendo celdas secundarias de merges vigentes, DataLink y FIELD)
+                    if (!applyV.HasValue && p.RowHeights.Count > 0)
+                    {
+                        (double curV, double curH) = TableSupport.ReadCurrentMargins(table);
+                        double minReqH = p.RowHeights.Min(x => x.Alto);
+                        double textH = ReadSampleTextHeight(table);
+                        SafeMarginsResult safeV = TableRules.ComputeSafeMargins(curV, curH, minReqH, minReqH * 2.0, textH, reqVert: null, reqHoriz: curH);
+                        if (safeV.AutoAdjusted && safeV.Vertical.HasValue)
+                        {
+                            applyV = safeV.Vertical.Value;
+                            warnings.Add(string.Format(
+                                CultureInfo.InvariantCulture,
+                                "Margen vertical reducido automáticamente de {0:0.###} a {1:0.###} para respetar alto(s) pedido(s).",
+                                curV, applyV.Value));
+                        }
+                    }
+
+                    TableSupport.ApplyMargins(table, applyV, applyH);
+
+                    // 7. Celdas (protegiendo celdas secundarias de merges vigentes, DataLink y FIELD)
                     for (int i = 0; i < p.Celdas.Count; i++)
                     {
                         TableCellSpec cs = p.Celdas[i];
-                        Cell cell = table.Cells[cs.Fila, cs.Columna];
-                        if (cell.IsMerged == true)
+                        CellRange? mr = TableSupport.TryGetMergeRange(table, cs.Fila, cs.Columna);
+                        if (mr != null && (mr.TopRow != cs.Fila || mr.LeftColumn != cs.Columna))
                         {
-                            CellRange mr = cell.GetMergeRange();
-                            if (mr != null && !mr.IsNull && (mr.TopRow != cs.Fila || mr.LeftColumn != cs.Columna))
-                            {
-                                throw ToolException.InvalidParams(string.Format(
-                                    CultureInfo.InvariantCulture,
-                                    "celdas[{0}]: la celda ({1}, {2}) está cubierta por la combinación ({3}, {4}..{5}, {6})",
-                                    i, cs.Fila, cs.Columna, mr.TopRow, mr.LeftColumn, mr.BottomRow, mr.RightColumn));
-                            }
+                            throw ToolException.InvalidParams(string.Format(
+                                CultureInfo.InvariantCulture,
+                                "celdas[{0}]: la celda ({1}, {2}) está cubierta por la combinación ({3}, {4}..{5}, {6})",
+                                i, cs.Fila, cs.Columna, mr.TopRow, mr.LeftColumn, mr.BottomRow, mr.RightColumn));
                         }
 
+                        Cell cell = table.Cells[cs.Fila, cs.Columna];
                         bool changingText = cs.Texto != null || cs.TextoFormato != null;
                         bool changingFmt = cs.Alineacion != null || cs.AlturaTexto.HasValue || cs.EstiloTexto != null
                             || cs.ColorTexto.HasValue || cs.ColorFondo.HasValue;
@@ -749,12 +795,30 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                         TableSupport.ApplyCellContent(cell, cs.Texto, cs.TextoFormato);
                     }
 
-                    // 7. Estilo, capa y posición
-                    if (!newTableStyleId.IsNull)
+                    // Anchos de columna y altos de fila (con registro previo para medir cambios reales tras regenerar)
+                    double[] beforeCols = new double[table.Columns.Count];
+                    for (int c = 0; c < beforeCols.Length; c++)
                     {
-                        table.TableStyle = newTableStyleId;
+                        beforeCols[c] = table.Columns[c].Width;
                     }
 
+                    double[] beforeRows = new double[table.Rows.Count];
+                    for (int r = 0; r < beforeRows.Length; r++)
+                    {
+                        beforeRows[r] = table.Rows[r].Height;
+                    }
+
+                    foreach ((int col, double ancho) in p.ColWidths)
+                    {
+                        table.Columns[col].Width = ancho;
+                    }
+
+                    foreach ((int row, double alto) in p.RowHeights)
+                    {
+                        table.Rows[row].Height = alto;
+                    }
+
+                    // 8. Capa y posición
                     if (newLayer != null)
                     {
                         table.LayerId = newLayer.Id;
@@ -764,21 +828,135 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                     {
                         table.Position = AcadUtil.ToPoint3d(p.Posicion.Value);
                     }
+
+                    table.SuppressRegenerateTable(false);
+
+                    table.GenerateLayout();
+
+                    // Segundo pase si el layout conservó MinimumWidth anterior antes de reducir márgenes
+                    bool needsSecondPass = false;
+                    foreach ((int col, double ancho) in p.ColWidths)
+                    {
+                        if (Math.Abs(table.Columns[col].Width - ancho) > 1e-4)
+                        {
+                            table.Columns[col].Width = ancho;
+                            needsSecondPass = true;
+                        }
+                    }
+
+                    foreach ((int row, double alto) in p.RowHeights)
+                    {
+                        if (Math.Abs(table.Rows[row].Height - alto) > 1e-4)
+                        {
+                            table.Rows[row].Height = alto;
+                            needsSecondPass = true;
+                        }
+                    }
+
+                    if (needsSecondPass)
+                    {
+                        table.GenerateLayout();
+                    }
+
+                    table.RecomputeTableBlock(true);
+
+                    actualCols = new double[table.Columns.Count];
+                    for (int c = 0; c < actualCols.Length; c++)
+                    {
+                        actualCols[c] = table.Columns[c].Width;
+                    }
+
+                    actualRows = new double[table.Rows.Count];
+                    for (int r = 0; r < actualRows.Length; r++)
+                    {
+                        actualRows[r] = table.Rows[r].Height;
+                    }
+
+                    actualTotalW = table.Width;
+                    actualTotalH = table.Height;
+
+                    var clamped = new List<string>();
+                    actualAnchosModificados = 0;
+                    foreach ((int col, double ancho) in p.ColWidths)
+                    {
+                        if (Math.Abs(actualCols[col] - beforeCols[col]) > 1e-4)
+                        {
+                            actualAnchosModificados++;
+                        }
+
+                        if (Math.Abs(actualCols[col] - ancho) > 1e-3)
+                        {
+                            clamped.Add(string.Format(
+                                CultureInfo.InvariantCulture,
+                                "col {0} pedida={1:0.####} real={2:0.####} min={3:0.####}",
+                                col, ancho, actualCols[col], table.Columns[col].MinimumWidth));
+                        }
+                    }
+
+                    actualAltosModificados = 0;
+                    foreach ((int row, double alto) in p.RowHeights)
+                    {
+                        if (Math.Abs(actualRows[row] - beforeRows[row]) > 1e-4)
+                        {
+                            actualAltosModificados++;
+                        }
+
+                        if (Math.Abs(actualRows[row] - alto) > 1e-3)
+                        {
+                            clamped.Add(string.Format(
+                                CultureInfo.InvariantCulture,
+                                "fila {0} pedida={1:0.####} real={2:0.####} min={3:0.####}",
+                                row, alto, actualRows[row], table.Rows[row].MinimumHeight));
+                        }
+                    }
+
+                    if (clamped.Count > 0)
+                    {
+                        warnings.Add("AutoCAD limitó algunas dimensiones al mínimo requerido por el texto/márgenes: " + string.Join("; ", clamped) + ".");
+                    }
                 }
                 finally
                 {
-                    table.SuppressRegenerateTable(false);
+                    try
+                    {
+                        table.SuppressRegenerateTable(false);
+                    }
+                    catch (Autodesk.AutoCAD.Runtime.Exception)
+                    {
+                        // Si ya estaba en false, se ignora.
+                    }
                 }
 
-                table.GenerateLayout();
-                table.RecomputeTableBlock(true);
                 double[][]? bbox = PrimitiveSupport.Box2D(table);
                 plan.CapaFinal = table.Layer;
                 plan.EstiloFinal = table.TableStyleName;
                 tr.Commit();
 
-                return BuildResponse(pid, CleanWrite.Mode.Write, ins, warnings, p, plan, bbox);
+                return BuildResponse(
+                    pid, CleanWrite.Mode.Write, ins, warnings, p, plan, bbox,
+                    actualAnchosModificados, actualAltosModificados, actualCols, actualRows, actualTotalW, actualTotalH);
             }
+        }
+
+        private static double ReadSampleTextHeight(Table table)
+        {
+            try
+            {
+                if (table.Rows.Count > 0 && table.Columns.Count > 0)
+                {
+                    double? h = table.Cells[0, 0].TextHeight;
+                    if (h.HasValue && double.IsFinite(h.Value) && h.Value > 0)
+                    {
+                        return h.Value;
+                    }
+                }
+            }
+            catch (Autodesk.AutoCAD.Runtime.Exception)
+            {
+                // Ignorar.
+            }
+
+            return 0.1;
         }
 
         private static Dictionary<string, object?> BuildResponse(
@@ -788,7 +966,13 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             List<string> warnings,
             Params p,
             Plan plan,
-            double[][]? bbox)
+            double[][]? bbox,
+            int? anchosModificados = null,
+            int? altosModificados = null,
+            double[]? anchosColumnas = null,
+            double[]? altosFilas = null,
+            double? anchoTotal = null,
+            double? altoTotal = null)
         {
             var resumen = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
@@ -798,8 +982,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 ["columnas_borradas"] = SumCount(p.DeleteCols),
                 ["celdas_separadas"] = p.Unmerges.Count,
                 ["rangos_combinados"] = p.Merges.Count,
-                ["anchos_modificados"] = p.ColWidths.Count,
-                ["altos_modificados"] = p.RowHeights.Count,
+                ["anchos_modificados"] = anchosModificados ?? p.ColWidths.Count,
+                ["altos_modificados"] = altosModificados ?? p.RowHeights.Count,
                 ["celdas_editadas"] = p.Celdas.Count,
                 ["capa_cambiada"] = p.Capa != null && !string.Equals(plan.CapaActual, plan.CapaFinal, StringComparison.OrdinalIgnoreCase),
                 ["estilo_cambiado"] = p.Estilo != null,
@@ -815,6 +999,10 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             res["columnas_antes"] = plan.ColsAntes;
             res["filas_despues"] = plan.FilasDespues;
             res["columnas_despues"] = plan.ColsDespues;
+            if (anchosColumnas != null) res["anchos_columnas"] = anchosColumnas;
+            if (altosFilas != null) res["altos_filas"] = altosFilas;
+            if (anchoTotal.HasValue) res["ancho_total"] = anchoTotal.Value;
+            if (altoTotal.HasValue) res["alto_total"] = altoTotal.Value;
             res["resumen_cambios"] = resumen;
             res["bbox"] = bbox;
             res["origen_texto"] = "contenido_del_plano";

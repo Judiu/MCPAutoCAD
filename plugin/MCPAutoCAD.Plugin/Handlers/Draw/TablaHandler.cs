@@ -378,6 +378,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 table.TableStyle = styleInfo.Id;
                 table.Position = AcadUtil.ToPoint3d(p.Posicion);
                 table.SetSize(p.Filas, p.Columnas);
+                string handle = DrawWrite.Append(space, tr, table);
 
                 table.SuppressRegenerateTable(true);
                 try
@@ -390,18 +391,6 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                         table.Cells.Style = dataStyle;
                     }
 
-                    if (margins.Vertical.HasValue)
-                    {
-                        table.Cells.Borders.Top.Margin = margins.Vertical.Value;
-                        table.Cells.Borders.Bottom.Margin = margins.Vertical.Value;
-                    }
-
-                    if (margins.Horizontal.HasValue)
-                    {
-                        table.Cells.Borders.Left.Margin = margins.Horizontal.Value;
-                        table.Cells.Borders.Right.Margin = margins.Horizontal.Value;
-                    }
-
                     if (!globalTextStyleId.IsNull)
                     {
                         table.Cells.TextStyleId = globalTextStyleId;
@@ -409,6 +398,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
                     table.Cells.TextHeight = p.AlturaTexto;
                     table.Cells.Alignment = TableSupport.ToCellAlignment(p.Alineacion);
+                    TableSupport.ApplyMargins(table, margins.Vertical, margins.Horizontal);
 
                     for (int r = 0; r < p.Filas; r++)
                     {
@@ -432,6 +422,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                         TableSupport.ApplyCellFormatting(cell, spec.Alineacion, spec.AlturaTexto, tsId, spec.ColorTexto, spec.ColorFondo);
                         TableSupport.ApplyCellContent(cell, spec.Texto, spec.TextoFormato);
                     }
+
+                    // Asegurar que ninguna celda añadida herede márgenes mayores al reducir el estilo Standard.
+                    TableSupport.ApplyMargins(table, margins.Vertical, margins.Horizontal);
                 }
                 finally
                 {
@@ -439,16 +432,46 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 }
 
                 table.GenerateLayout();
-                string handle = DrawWrite.Append(space, tr, table);
+
+                // Re-aplicar anchos/altos una vez que los márgenes reducidos están activos en el layout, para evitar el
+                // encajado con MinimumWidth previo (fallo 53).
+                bool needsSecondPass = false;
+                for (int c = 0; c < p.Columnas; c++)
+                {
+                    if (Math.Abs(table.Columns[c].Width - p.ColWidths[c]) > 1e-4)
+                    {
+                        table.Columns[c].Width = p.ColWidths[c];
+                        needsSecondPass = true;
+                    }
+                }
+
+                for (int r = 0; r < p.Filas; r++)
+                {
+                    if (Math.Abs(table.Rows[r].Height - p.RowHeights[r]) > 1e-4)
+                    {
+                        table.Rows[r].Height = p.RowHeights[r];
+                        needsSecondPass = true;
+                    }
+                }
+
+                if (needsSecondPass)
+                {
+                    table.GenerateLayout();
+                }
+
+                table.RecomputeTableBlock(true);
 
                 var actualCols = new double[p.Columnas];
-                bool adjustedByAcad = false;
+                var adjustedNotes = new List<string>();
                 for (int c = 0; c < p.Columnas; c++)
                 {
                     actualCols[c] = table.Columns[c].Width;
                     if (Math.Abs(actualCols[c] - p.ColWidths[c]) > 1e-3)
                     {
-                        adjustedByAcad = true;
+                        adjustedNotes.Add(string.Format(
+                            CultureInfo.InvariantCulture,
+                            "col {0} pedida={1:0.####} real={2:0.####} min={3:0.####}",
+                            c, p.ColWidths[c], actualCols[c], table.Columns[c].MinimumWidth));
                     }
                 }
 
@@ -458,13 +481,22 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                     actualRows[r] = table.Rows[r].Height;
                     if (Math.Abs(actualRows[r] - p.RowHeights[r]) > 1e-3)
                     {
-                        adjustedByAcad = true;
+                        adjustedNotes.Add(string.Format(
+                            CultureInfo.InvariantCulture,
+                            "fila {0} pedida={1:0.####} real={2:0.####} min={3:0.####}",
+                            r, p.RowHeights[r], actualRows[r], table.Rows[r].MinimumHeight));
                     }
                 }
 
-                if (adjustedByAcad)
+                if (adjustedNotes.Count > 0)
                 {
-                    warnings.Add("AutoCAD ajustó el ancho de alguna columna o el alto de alguna fila para dar cabida al texto/márgenes.");
+                    string sample = string.Join("; ", adjustedNotes.Take(6));
+                    if (adjustedNotes.Count > 6)
+                    {
+                        sample += " (+" + (adjustedNotes.Count - 6).ToString(CultureInfo.InvariantCulture) + " más)";
+                    }
+
+                    warnings.Add("AutoCAD ajustó medidas por mínimo del texto/márgenes: " + sample + ".");
                 }
 
                 double totalW = table.Width;

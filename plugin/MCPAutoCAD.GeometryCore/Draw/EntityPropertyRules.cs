@@ -200,6 +200,43 @@ namespace MCPAutoCAD.GeometryCore.Draw
         /// </summary>
         public static string LinetypeFileFor(int measurement) => measurement == 1 ? "acadiso.lin" : "acad.lin";
 
+        /// <summary>Fichero estándar alternativo de tipos de línea para fallback si el principal no contiene el patrón.</summary>
+        public static string AlternateLinetypeFileFor(int measurement) => measurement == 1 ? "acad.lin" : "acadiso.lin";
+
+        /// <summary>
+        /// Solo permite los ficheros estándar de AutoCAD (<c>acadiso.lin</c> o <c>acad.lin</c>), sin rutas ni subcarpetas.
+        /// </summary>
+        public static bool IsAllowedStandardLinetypeFile(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return false;
+            }
+
+            string trimmed = name.Trim();
+            return string.Equals(trimmed, "acadiso.lin", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(trimmed, "acad.lin", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Ficheros estándar a intentar al cargar un tipo de línea: el explícito (si se indica y es válido) o el primario
+        /// según MEASUREMENT seguido del alternativo.
+        /// </summary>
+        public static string[] LinetypeFilesToTry(int measurement, string? requestedFile)
+        {
+            if (!string.IsNullOrWhiteSpace(requestedFile))
+            {
+                if (!IsAllowedStandardLinetypeFile(requestedFile))
+                {
+                    throw new ArgumentException("archivo: solo se admiten 'acadiso.lin' o 'acad.lin'", nameof(requestedFile));
+                }
+
+                return new[] { requestedFile.Trim().ToLowerInvariant() };
+            }
+
+            return new[] { LinetypeFileFor(measurement), AlternateLinetypeFileFor(measurement) };
+        }
+
         /// <summary>Caracteres que AutoCAD no admite en nombres de símbolos (tipos de línea, capas, …).</summary>
         public const string InvalidSymbolChars = "*?~,[]|<>/\\\":;=`'";
 

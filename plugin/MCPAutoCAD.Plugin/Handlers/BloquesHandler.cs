@@ -205,7 +205,7 @@ namespace MCPAutoCAD.Plugin.Handlers
         }
 
         /// <summary>Definición no borrada y no de layout con ese nombre (sin distinguir mayúsculas), o null.</summary>
-        private static BlockTableRecord? FindBlock(Database db, Transaction tr, string name)
+        internal static BlockTableRecord? FindBlock(Database db, Transaction tr, string name)
         {
             var table = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
             ObjectId id = ObjectId.Null;

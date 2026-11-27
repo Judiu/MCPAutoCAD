@@ -24,7 +24,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     {
         private static readonly string[] Allowed =
         {
-            "handle", "handles", "texto_sustituto", "estilo", "posicion_texto", "escala_global", "confirmar", "preview",
+            "handle", "handles", "texto_sustituto", "estilo", "posicion_texto", "escala_global", "fondo_texto", "confirmar", "preview",
         };
 
         private const int MaxLote = 200;
@@ -35,8 +35,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
         public string Description =>
             "EDITA cotas existentes (Dimension, por handle o lote de hasta 200): cambia el texto de sustitución (con '<>' = medida; '' = " +
-            "quitar), el estilo de cota, la posición del texto y la escala global (DIMSCALE de la cota), en un solo paso de deshacer. " +
-            "Sin confirmar: true solo previsualiza. Rechaza entidades que no son cotas, atributos, entidades de bloques y capas bloqueadas o de xref.";
+            "quitar), el estilo de cota, la posición del texto, la escala global (DIMSCALE) y el fondo del texto (DIMTFILL/DIMTFILLCLR), " +
+            "en un solo paso de deshacer. Sin confirmar: true solo previsualiza. Rechaza entidades que no son cotas, atributos, entidades de bloques y capas bloqueadas o de xref.";
 
         public bool RequiresDocument => true;
 
@@ -53,12 +53,13 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     ""estilo"": { ""type"": ""string"", ""minLength"": 1, ""maxLength"": 255, ""description"": ""Nombre de un estilo de cota existente (sin distinguir mayúsculas)."" },
     ""posicion_texto"": { ""type"": ""array"", ""items"": { ""type"": ""number"" }, ""minItems"": 2, ""maxItems"": 3, ""description"": ""Nueva posición del texto de la cota [x, y] o [x, y, z] (WCS)."" },
     ""escala_global"": { ""type"": ""number"", ""exclusiveMinimum"": 0, ""description"": ""Escala global (DIMSCALE) de esta cota, como override de la del estilo (> 0)."" },
+    ""fondo_texto"": " + DimTextFillUtil.SchemaProperty + @",
     ""confirmar"": " + CleanWrite.SchemaConfirmar + @",
     ""preview"": " + CleanWrite.SchemaPreview + @"
   },
   ""allOf"": [
     { ""oneOf"": [ { ""required"": [""handle""] }, { ""required"": [""handles""] } ] },
-    { ""anyOf"": [ { ""required"": [""texto_sustituto""] }, { ""required"": [""estilo""] }, { ""required"": [""posicion_texto""] }, { ""required"": [""escala_global""] } ] }
+    { ""anyOf"": [ { ""required"": [""texto_sustituto""] }, { ""required"": [""estilo""] }, { ""required"": [""posicion_texto""] }, { ""required"": [""escala_global""] }, { ""required"": [""fondo_texto""] } ] }
   ],
   ""additionalProperties"": false
 }");
@@ -84,13 +85,16 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
         private sealed class Params
         {
-            public Params(List<string> handles, string? texto, string? estilo, Point3? posicion, double? escala, CleanWrite.Common common)
+            public Params(
+                List<string> handles, string? texto, string? estilo, Point3? posicion, double? escala,
+                DimTextFillSpec? fondoTexto, CleanWrite.Common common)
             {
                 Handles = handles;
                 Texto = texto;
                 Estilo = estilo;
                 Posicion = posicion;
                 Escala = escala;
+                FondoTexto = fondoTexto;
                 Common = common;
             }
 
@@ -103,6 +107,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             public Point3? Posicion { get; }
 
             public double? Escala { get; }
+
+            public DimTextFillSpec? FondoTexto { get; }
 
             public CleanWrite.Common Common { get; }
         }
@@ -141,13 +147,14 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             string? estilo = ParamReader.OptionalString(p, "estilo", 1, 255);
             Point3? posicion = ParamReader.OptionalPoint(p, "posicion_texto");
             double? escala = ParamReader.OptionalNumber(p, "escala_global", 0, double.PositiveInfinity, exclusiveMin: true);
-            if (texto == null && estilo == null && posicion == null && escala == null)
+            DimTextFillSpec? fondoTexto = DimTextFillUtil.ParseOptional(p);
+            if (texto == null && estilo == null && posicion == null && escala == null && fondoTexto == null)
             {
-                throw ToolException.InvalidParams("debe indicar al menos uno de: texto_sustituto, estilo, posicion_texto, escala_global");
+                throw ToolException.InvalidParams("debe indicar al menos uno de: texto_sustituto, estilo, posicion_texto, escala_global, fondo_texto");
             }
 
             CleanWrite.Common common = CleanWrite.ReadCommon(p);
-            return new Params(handles, texto, estilo, posicion, escala, common);
+            return new Params(handles, texto, estilo, posicion, escala, fondoTexto, common);
         }
 
         public object Execute(JsonElement parameters, ExecutionContext ctx)
@@ -222,6 +229,11 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                         dim.Dimscale = p.Escala.Value;
                     }
 
+                    if (p.FondoTexto != null)
+                    {
+                        DimTextFillUtil.Apply(dim, p.FondoTexto);
+                    }
+
                     try
                     {
                         dim.RecomputeDimensionBlock(true);
@@ -291,6 +303,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 ["estilo"] = SafeText(() => dim.DimensionStyleName),
                 ["posicion_texto"] = AcadUtil.PointOrNull(dim.TextPosition),
                 ["escala_global"] = AcadUtil.NumberOrNull(dim.Dimscale),
+                ["fondo_texto"] = DimTextFillUtil.SafeDescribe(() => dim.Dimtfill, () => dim.Dimtfillclr),
                 ["medida"] = SafeMeasurement(dim),
             };
         }
@@ -317,6 +330,11 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             if (p.Escala != null)
             {
                 d["escala_global"] = p.Escala.Value;
+            }
+
+            if (p.FondoTexto != null)
+            {
+                d["fondo_texto"] = p.FondoTexto.Label;
             }
 
             return d;

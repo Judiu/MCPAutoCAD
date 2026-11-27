@@ -5,6 +5,7 @@ using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using MCPAutoCAD.GeometryCore;
+using MCPAutoCAD.GeometryCore.Draw;
 using MCPAutoCAD.Plugin.Bridge;
 using MCPAutoCAD.Plugin.Handlers.Clean;
 
@@ -26,14 +27,14 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     /// </list>
     /// Overrides: escala_global (DIMSCALE), altura_texto (DIMTXT), tamano_flecha (DIMASZ), estilo_texto (DIMTXSTY, estilo de
     /// texto existente), decimales (DIMDEC 0–8), factor_medida (DIMLFAC > 0), extension (DIMEXE ≥ 0), desfase (DIMEXO ≥ 0),
-    /// color_texto (DIMCLRT, índice ACI 1–255).
+    /// color_texto (DIMCLRT, índice ACI 1–255), fondo_texto (DIMTFILL / DIMTFILLCLR: ninguno, fondo_dibujo, ACI 1–255 o [r, g, b]).
     /// </summary>
     internal sealed class EstiloCotaHandler : IToolHandler
     {
         private static readonly string[] Allowed =
         {
             "nombre", "modificar", "basado_en", "escala_global", "altura_texto", "tamano_flecha", "estilo_texto", "decimales",
-            "factor_medida", "extension", "desfase", "color_texto", "activar", "confirmar", "preview",
+            "factor_medida", "extension", "desfase", "color_texto", "fondo_texto", "activar", "confirmar", "preview",
         };
 
         private const string EscalaAnotativa = "escala_global ignorada: el estilo es anotativo (la escala la fija la escala de anotación).";
@@ -42,7 +43,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
         public string Description =>
             "CREA un estilo de cota copiando otro existente (basado_en, por defecto el actual) con overrides acotados (escala_global, " +
-            "altura_texto, tamano_flecha, estilo_texto, decimales, factor_medida, extension, desfase, color_texto), o MODIFICA uno " +
+            "altura_texto, tamano_flecha, estilo_texto, decimales, factor_medida, extension, desfase, color_texto, fondo_texto), o MODIFICA uno " +
             "existente con modificar: true (recalcula todas sus cotas del modelo y layouts; sin confirmar: true solo previsualiza). " +
             "activar: true lo hace el estilo actual. Un paso de deshacer.";
 
@@ -67,6 +68,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     ""extension"": { ""type"": ""number"", ""minimum"": 0, ""description"": ""DIMEXE: extensión de las líneas de referencia más allá de la línea de cota."" },
     ""desfase"": { ""type"": ""number"", ""minimum"": 0, ""description"": ""DIMEXO: desfase de las líneas de referencia desde el origen."" },
     ""color_texto"": { ""type"": ""integer"", ""minimum"": 1, ""maximum"": 255, ""description"": ""DIMCLRT: índice ACI (1–255) del color del texto de cota."" },
+    ""fondo_texto"": " + DimTextFillUtil.SchemaProperty + @",
     ""activar"": { ""type"": ""boolean"", ""default"": false, ""description"": ""true = hacer este estilo el actual del dibujo (y aplicar sus valores a las variables de cota)."" },
     ""confirmar"": { ""type"": ""boolean"", ""default"": false, ""description"": ""true = escribir una modificación (modificar: true). Crear no lo necesita."" },
     ""preview"": { ""type"": ""boolean"", ""description"": ""true = solo previsualizar aunque se pase confirmar: true (y, al crear, no escribir)."" }
@@ -105,6 +107,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             public double? Extension;
             public double? Desfase;
             public int? ColorTexto;
+            public DimTextFillSpec? FondoTexto;
             public bool Activar;
             public bool Confirmar;
             public bool? Preview;
@@ -114,7 +117,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
             public bool HayOverrides =>
                 Escala != null || AlturaTexto != null || TamanoFlecha != null || EstiloTexto != null || Decimales != null
-                || FactorMedida != null || Extension != null || Desfase != null || ColorTexto != null;
+                || FactorMedida != null || Extension != null || Desfase != null || ColorTexto != null || FondoTexto != null;
         }
 
         /// <summary>Resultado de la validación previa (lectura): ids válidos en cualquier transacción posterior.</summary>
@@ -146,6 +149,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 Extension = ParamReader.OptionalNumber(p, "extension", 0, double.PositiveInfinity),
                 Desfase = ParamReader.OptionalNumber(p, "desfase", 0, double.PositiveInfinity),
                 ColorTexto = ParamReader.OptionalInt(p, "color_texto", 1, 255),
+                FondoTexto = DimTextFillUtil.ParseOptional(p),
                 Activar = ParamReader.OptionalBool(p, "activar") ?? false,
                 Confirmar = ParamReader.OptionalBool(p, "confirmar") ?? false,
                 Preview = ParamReader.OptionalBool(p, "preview"),
@@ -395,6 +399,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             if (p.Extension.HasValue) rec.Dimexe = p.Extension.Value;
             if (p.Desfase.HasValue) rec.Dimexo = p.Desfase.Value;
             if (p.ColorTexto.HasValue) rec.Dimclrt = Color.FromColorIndex(ColorMethod.ByAci, (short)p.ColorTexto.Value);
+            if (p.FondoTexto != null) DimTextFillUtil.Apply(rec, p.FondoTexto);
         }
 
         private static bool IsAnnotative(DimStyleTableRecord rec) => rec.Annotative == AnnotativeStates.True;
@@ -419,6 +424,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 ["extension"] = rec.Dimexe,
                 ["desfase"] = rec.Dimexo,
                 ["color_texto"] = (int)rec.Dimclrt.ColorIndex,
+                ["fondo_texto"] = DimTextFillUtil.SafeDescribe(() => rec.Dimtfill, () => rec.Dimtfillclr),
             };
         }
 
@@ -448,6 +454,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             if (p.Extension.HasValue) d["extension"] = p.Extension.Value;
             if (p.Desfase.HasValue) d["desfase"] = p.Desfase.Value;
             if (p.ColorTexto.HasValue) d["color_texto"] = p.ColorTexto.Value;
+            if (p.FondoTexto != null) d["fondo_texto"] = p.FondoTexto.Label;
             return d;
         }
 

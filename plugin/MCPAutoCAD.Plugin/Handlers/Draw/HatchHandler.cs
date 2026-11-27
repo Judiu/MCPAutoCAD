@@ -47,13 +47,14 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         private static readonly string[] Allowed = PrimitiveSupport.Concat(
             PrimitiveSupport.Concat(Own, EntityColor.ParamNames),
             DrawWrite.CommonParams);
-        private static readonly string[] AllowedContour = { "handles", "vertices" };
+        private static readonly string[] AllowedContour = { "handles", "vertices", "huecos", "huecos_handles" };
 
         public string Name => "hatch";
 
         public string Description =>
             "ESCRIBE en el dibujo: crea un sombreado (HATCH) dentro de un contorno dado por handles de entidades cerradas " +
-            "(LWPOLYLINE/POLYLINE 2D cerradas, CIRCLE, ELLIPSE; asociativo) o por vértices [x, y] (no asociativo), en un solo paso de deshacer. " +
+            "(LWPOLYLINE/POLYLINE 2D cerradas, CIRCLE, ELLIPSE; asociativo; con huecos_handles opcionales para islas) o por " +
+            "vértices [x, y] (no asociativo; con 'huecos' opcionales para islas interiores), en un solo paso de deshacer. " +
             "El patrón es predefinido (SOLID, ANSI31, AR-CONC, …), uno ya definido en el dibujo (p. ej. FP_1) o el de un HATCH existente (patron_de: handle), " +
             "con color opcional. Capa por defecto Achurados (concepto 'achurados').";
 
@@ -68,10 +69,12 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
   ""properties"": {
     ""contorno"": {
       ""type"": ""object"",
-      ""description"": ""Exactamente uno: {handles: [...]} con 1 a 50 entidades cerradas del espacio destino (un bucle por entidad), o {vertices: [...]} con 3 a 1000 puntos de un polígono (sin repetir el primero al final)."",
+      ""description"": ""Exactamente uno como exterior: {handles: [...], huecos_handles?: [...]} con 1 a 50 entidades cerradas del espacio destino, o {vertices: [...], huecos?: [[...], ...]} con 3 a 1000 puntos y de 1 a 50 islas interiores."",
       ""properties"": {
         ""handles"": { ""type"": ""array"", ""minItems"": 1, ""maxItems"": 50, ""items"": " + ParamReader.SchemaHandle + @" },
-        ""vertices"": { ""type"": ""array"", ""minItems"": 3, ""maxItems"": 1000, ""items"": " + PrimitiveSupport.PointSchema + @" }
+        ""huecos_handles"": { ""type"": ""array"", ""minItems"": 1, ""maxItems"": 50, ""items"": " + ParamReader.SchemaHandle + @", ""description"": ""Solo con contorno.handles: handles de entidades cerradas interiores (islas)."" },
+        ""vertices"": { ""type"": ""array"", ""minItems"": 3, ""maxItems"": 1000, ""items"": " + PrimitiveSupport.PointSchema + @" },
+        ""huecos"": { ""type"": ""array"", ""minItems"": 1, ""maxItems"": 50, ""items"": { ""type"": ""array"", ""minItems"": 3, ""maxItems"": 1000, ""items"": " + PrimitiveSupport.PointSchema + @" }, ""description"": ""Solo con contorno.vertices: de 1 a 50 anillos interiores (islas) contenidos en el contorno exterior."" }
       },
       ""additionalProperties"": false
     },
@@ -112,7 +115,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         {
             public Params(
                 List<string>? handles,
+                List<string>? holeHandles,
                 List<(double x, double y)>? vertices,
+                List<IReadOnlyList<(double x, double y)>>? holes,
                 string? pattern,
                 string? patronDe,
                 double? scale,
@@ -121,7 +126,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 DrawWrite.Common common)
             {
                 Handles = handles;
+                HoleHandles = holeHandles;
                 Vertices = vertices;
+                Holes = holes;
                 Pattern = pattern;
                 PatronDe = patronDe;
                 Scale = scale;
@@ -133,7 +140,11 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             /// <summary>Handles en mayúsculas (o null si el contorno es por vértices).</summary>
             public List<string>? Handles { get; }
 
+            public List<string>? HoleHandles { get; }
+
             public List<(double x, double y)>? Vertices { get; }
+
+            public List<IReadOnlyList<(double x, double y)>>? Holes { get; }
 
             /// <summary>Nombre del patrón (null con patron_de).</summary>
             public string? Pattern { get; }
@@ -177,18 +188,54 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             }
 
             List<string>? handles = null;
+            List<string>? holeHandles = null;
             List<(double x, double y)>? vertices = null;
+            List<IReadOnlyList<(double x, double y)>>? holes = null;
             if (hasHandles)
             {
-                handles = ReadHandles(handlesEl);
+                if (contour.TryGetProperty("huecos", out _))
+                {
+                    throw ToolException.InvalidParams("contorno.huecos: solo aplica con contorno.vertices");
+                }
+
+                handles = ReadHandles(handlesEl, "contorno.handles");
+                if (contour.TryGetProperty("huecos_handles", out JsonElement hhEl))
+                {
+                    holeHandles = ReadHandles(hhEl, "contorno.huecos_handles");
+                    var outerSet = new HashSet<string>(handles, StringComparer.Ordinal);
+                    for (int i = 0; i < holeHandles.Count; i++)
+                    {
+                        if (outerSet.Contains(holeHandles[i]))
+                        {
+                            throw ToolException.InvalidParams(
+                                "contorno.huecos_handles[" + i.ToString(CultureInfo.InvariantCulture) + "]: el handle ya está en contorno.handles");
+                        }
+                    }
+                }
             }
             else
             {
+                if (contour.TryGetProperty("huecos_handles", out _))
+                {
+                    throw ToolException.InvalidParams("contorno.huecos_handles: solo aplica con contorno.handles");
+                }
+
                 vertices = ReadVertices(verticesEl);
                 IReadOnlyList<string> errors = HatchBoundary.ValidateVertices(vertices);
                 if (errors.Count > 0)
                 {
                     throw ToolException.InvalidParams(errors[0]);
+                }
+
+                bool zIgnored = false;
+                holes = PolilineaHandler.ReadOptionalHoles(contour, "contorno.huecos", ref zIgnored);
+                if (holes != null)
+                {
+                    string? holeErr = PolygonHoleRules.ValidateHoles(vertices, holes, "contorno.huecos");
+                    if (holeErr != null)
+                    {
+                        throw ToolException.InvalidParams(holeErr);
+                    }
                 }
             }
 
@@ -219,13 +266,12 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             double? angle = angleRaw == null ? null : Angles.Normalize360(angleRaw.Value);
             ColorSpec? color = EntityColor.Read(p);
             DrawWrite.Common common = DrawWrite.ReadCommon(p, DefaultConcept);
-            return new Params(handles, vertices, pattern, patronDe, scale, angle, color, common);
+            return new Params(handles, holeHandles, vertices, holes, pattern, patronDe, scale, angle, color, common);
         }
 
-        /// <summary>contorno.handles: 1–50 handles hexadecimales sin repetidos (mayúsculas).</summary>
-        private static List<string> ReadHandles(JsonElement el)
+        /// <summary>contorno.handles / contorno.huecos_handles: 1–50 handles hexadecimales sin repetidos (mayúsculas).</summary>
+        private static List<string> ReadHandles(JsonElement el, string name)
         {
-            const string name = "contorno.handles";
             if (el.ValueKind != JsonValueKind.Array || el.GetArrayLength() < 1 || el.GetArrayLength() > MaxContourHandles)
             {
                 throw ToolException.InvalidParams(name + ": debe ser un array de 1 a 50 handles");
@@ -293,6 +339,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
             var boxes = new List<BBox2>(1);
             List<ObjectId>? ids = null;
+            List<ObjectId>? holeIds = null;
             string etiqueta;
             if (p.Handles != null)
             {
@@ -300,6 +347,15 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 if (union != null)
                 {
                     boxes.Add(union.Value);
+                }
+
+                if (p.HoleHandles != null)
+                {
+                    holeIds = CheckHandles(db, p.HoleHandles, p.Common.Espacio, out BBox2? holeUnion);
+                    if (holeUnion != null)
+                    {
+                        boxes.Add(holeUnion.Value);
+                    }
                 }
 
                 etiqueta = "entidades";
@@ -324,7 +380,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             PlacementCheck.Run(db, p.Common.Espacio, boxes, p.Common.Forzar, etiqueta, warnings);
 
             int pid = ctx.Pid;
-            return UndoGroup.Run(doc, d => Write(d, p, ids, templateId, pid, ins, warnings));
+            return UndoGroup.Run(doc, d => Write(d, p, ids, holeIds, templateId, pid, ins, warnings));
         }
 
         /// <summary>
@@ -667,12 +723,13 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         // Último paso de la API de Hatch alcanzado en Write; se registra si AutoCAD lanza (diagnóstico del gate).
         private static string Paso = "";
 
-        private static object Write(Document doc, Params p, List<ObjectId>? ids, ObjectId templateId, int pid, int ins, List<string> warnings)
+        private static object Write(
+            Document doc, Params p, List<ObjectId>? ids, List<ObjectId>? holeIds, ObjectId templateId, int pid, int ins, List<string> warnings)
         {
             Paso = "inicio";
             try
             {
-                return WriteCore(doc, p, ids, templateId, pid, ins, warnings);
+                return WriteCore(doc, p, ids, holeIds, templateId, pid, ins, warnings);
             }
             catch (Autodesk.AutoCAD.Runtime.Exception ex)
             {
@@ -681,7 +738,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             }
         }
 
-        private static object WriteCore(Document doc, Params p, List<ObjectId>? ids, ObjectId templateId, int pid, int ins, List<string> warnings)
+        private static object WriteCore(
+            Document doc, Params p, List<ObjectId>? ids, List<ObjectId>? holeIds, ObjectId templateId, int pid, int ins, List<string> warnings)
         {
             Database db = doc.Database;
             using (Transaction tr = db.TransactionManager.StartTransaction())
@@ -778,23 +836,33 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                         Paso = "AppendLoop(handles)";
                         hatch.AppendLoop(HatchLoopTypes.External, new ObjectIdCollection { id });
                     }
+
+                    if (holeIds != null)
+                    {
+                        for (int i = 0; i < holeIds.Count; i++)
+                        {
+                            ObjectId hid = holeIds[i];
+                            if (hid.IsNull || hid.IsErased)
+                            {
+                                throw ToolException.EntityNotFound(p.HoleHandles![i]);
+                            }
+
+                            Paso = "AppendLoop(huecos_handles)";
+                            hatch.AppendLoop(HatchLoopTypes.Default, new ObjectIdCollection { hid });
+                        }
+                    }
                 }
                 else
                 {
                     List<(double x, double y)> v = p.Vertices!;
-                    var pts = new Point2dCollection();
-                    var bulges = new DoubleCollection();
-                    foreach ((double x, double y) in v)
+                    AppendPolylineLoop(hatch, HatchLoopTypes.External | HatchLoopTypes.Polyline, v, "AppendLoop(vertices)");
+                    if (p.Holes != null)
                     {
-                        pts.Add(new Point2d(x, y));
-                        bulges.Add(0.0);
+                        foreach (IReadOnlyList<(double x, double y)> hole in p.Holes)
+                        {
+                            AppendPolylineLoop(hatch, HatchLoopTypes.Default | HatchLoopTypes.Polyline, hole, "AppendLoop(huecos)");
+                        }
                     }
-
-                    // Cierre explícito del bucle: se repite el primer vértice.
-                    pts.Add(new Point2d(v[0].x, v[0].y));
-                    bulges.Add(0.0);
-                    Paso = "AppendLoop(vertices)";
-                    hatch.AppendLoop(HatchLoopTypes.External | HatchLoopTypes.Polyline, pts, bulges);
                 }
 
                 Paso = "EvaluateHatch";
@@ -972,6 +1040,24 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             }
 
             return hatch;
+        }
+
+        private static void AppendPolylineLoop(
+            Hatch hatch, HatchLoopTypes loopType, IReadOnlyList<(double x, double y)> ring, string paso)
+        {
+            var pts = new Point2dCollection();
+            var bulges = new DoubleCollection();
+            for (int i = 0; i < ring.Count; i++)
+            {
+                pts.Add(new Point2d(ring[i].x, ring[i].y));
+                bulges.Add(0.0);
+            }
+
+            // Cierre explícito del bucle: se repite el primer vértice.
+            pts.Add(new Point2d(ring[0].x, ring[0].y));
+            bulges.Add(0.0);
+            Paso = paso;
+            hatch.AppendLoop(loopType, pts, bulges);
         }
 
         private static string SafePatternName(Hatch h, string fallback)

@@ -465,7 +465,7 @@ namespace MCPAutoCAD.GeometryCore.Draw
 
             if (!outHoriz.HasValue)
             {
-                double maxAllowedH = Math.Max(0.0, minColWidth * 0.25);
+                double maxAllowedH = Math.Max(0.0, Math.Min(minColWidth * 0.25, textHeight * 2.0));
                 if (styleHoriz > maxAllowedH)
                 {
                     outHoriz = Math.Round(Math.Min(maxAllowedH, textHeight * 0.35), 6);

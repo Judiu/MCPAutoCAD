@@ -23,9 +23,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         /// <summary>Máximo de polilíneas por lote.</summary>
         public const int MaxItems = 100;
 
-        private static readonly string[] Own = { "vertices", "cerrada", "bulges", "ancho" };
+        private static readonly string[] Own = { "vertices", "cerrada", "bulges", "ancho", "huecos" };
         private static readonly string[] Batch = { "polilineas" };
-        private static readonly string[] ItemAllowed = { "vertices", "cerrada", "bulges", "ancho" };
+        private static readonly string[] ItemAllowed = { "vertices", "cerrada", "bulges", "ancho", "huecos" };
         private static readonly string[] Allowed = PrimitiveSupport.Concat(
             PrimitiveSupport.Concat(Own, Batch),
             PrimitiveSupport.Concat(PrimitiveSupport.Concat(DrawWrite.CommonParams, EntityColor.ParamNames), PrimitiveSupport.RespuestaParam));
@@ -34,8 +34,9 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
         public string Description =>
             "ESCRIBE en el dibujo: crea una polilínea 2D (LWPOLYLINE) con 2 a 1000 vértices [x, y] en WCS y unidades del dibujo, " +
-            "opcionalmente cerrada, con arcos (bulges), ancho constante y color; o varias (polilineas: 1 a 100) en un solo paso de deshacer. " +
-            "Capa por defecto MCP-DIBUJO (o un concepto de lps.json como 'muros'); rechaza vértices duplicados y cerradas que se autointersecan (cita tramos y punto del cruce).";
+            "opcionalmente cerrada (y con anillos interiores 'huecos' / islas), con arcos (bulges), ancho constante y color; o varias " +
+            "(polilineas: 1 a 100) en un solo paso de deshacer. Capa por defecto MCP-DIBUJO (o un concepto de lps.json como 'muros'); " +
+            "rechaza vértices duplicados y cerradas que se autointersecan o huecos fuera/cruzados.";
 
         public bool RequiresDocument => true;
 
@@ -43,13 +44,27 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 
         public bool RunsOnPipeThread => false;
 
+        private const string SchemaHuecos = @"{
+          ""type"": ""array"",
+          ""minItems"": 1,
+          ""maxItems"": 50,
+          ""items"": {
+            ""type"": ""array"",
+            ""minItems"": 3,
+            ""maxItems"": 1000,
+            ""items"": " + PrimitiveSupport.PointSchema + @"
+          },
+          ""description"": ""Solo con cerrada: true. De 1 a 50 anillos interiores (islas/huecos) estrictamente contenidos en el contorno exterior y sin cruzarse ni solaparse. Crea una polilínea cerrada por cada hueco (misma capa/color/ancho, un CTRL+Z) y devuelve handles_huecos, n_huecos, area_bruta, area_huecos y area neta.""
+        }";
+
         private const string ItemSchema = @"{
         ""type"": ""object"",
         ""properties"": {
           ""vertices"": { ""type"": ""array"", ""minItems"": 2, ""maxItems"": 1000, ""items"": " + PrimitiveSupport.PointSchema + @", ""description"": ""Vértices [x, y] en WCS (la z se ignora)."" },
           ""cerrada"": { ""type"": ""boolean"", ""default"": false, ""description"": ""true = polilínea cerrada (no repita el primer vértice al final)."" },
           ""bulges"": { ""type"": ""array"", ""items"": { ""type"": ""number"" }, ""description"": ""Bulge de cada tramo (misma longitud que vertices)."" },
-          ""ancho"": { ""type"": ""number"", ""minimum"": 0, ""default"": 0, ""description"": ""Ancho constante en unidades del dibujo (0 = línea fina)."" }
+          ""ancho"": { ""type"": ""number"", ""minimum"": 0, ""default"": 0, ""description"": ""Ancho constante en unidades del dibujo (0 = línea fina)."" },
+          ""huecos"": " + SchemaHuecos + @"
         },
         ""required"": [""vertices""],
         ""additionalProperties"": false
@@ -62,7 +77,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
     ""cerrada"": { ""type"": ""boolean"", ""default"": false, ""description"": ""true = polilínea cerrada (no repita el primer vértice al final)."" },
     ""bulges"": { ""type"": ""array"", ""items"": { ""type"": ""number"" }, ""description"": ""Bulge de cada tramo (misma longitud que vertices): bulges[i] = tramo del vértice i al i+1 (el último, al cierre). 0 = recto; 1 = semicírculo antihorario. Cerrada con 2 vértices: válida si algún bulge ≠ 0 (p. ej. [1, 1] con ancho = DONUT)."" },
     ""ancho"": { ""type"": ""number"", ""minimum"": 0, ""default"": 0, ""description"": ""Ancho constante en unidades del dibujo (0 = línea fina)."" },
-    ""polilineas"": { ""type"": ""array"", ""minItems"": 1, ""maxItems"": 100, ""items"": " + ItemSchema + @", ""description"": ""Lote: 1 a 100 polilíneas con sus propias vertices/cerrada/bulges/ancho; todas comparten capa, espacio, color y forzar. No combinar con la forma simple. Un solo paso de deshacer; si una falla, no se crea ninguna."" },
+    ""huecos"": " + SchemaHuecos + @",
+    ""polilineas"": { ""type"": ""array"", ""minItems"": 1, ""maxItems"": 100, ""items"": " + ItemSchema + @", ""description"": ""Lote: 1 a 100 polilíneas con sus propias vertices/cerrada/bulges/ancho/huecos; todas comparten capa, espacio, color y forzar. No combinar con la forma simple. Un solo paso de deshacer; si una falla, no se crea ninguna."" },
     ""capa"": " + DrawWrite.SchemaCapa + @",
     ""espacio"": " + DrawWrite.SchemaEspacio + @",
     ""forzar"": " + DrawWrite.SchemaForzar + @",
@@ -82,6 +98,10 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         ""cerrada"": { ""type"": ""boolean"" },
         ""longitud"": { ""type"": [""number"", ""null""] },
         ""area"": { ""type"": [""number"", ""null""] },
+        ""handles_huecos"": { ""type"": ""array"", ""items"": { ""type"": ""string"" } },
+        ""n_huecos"": { ""type"": ""integer"" },
+        ""area_bruta"": { ""type"": [""number"", ""null""] },
+        ""area_huecos"": { ""type"": [""number"", ""null""] },
         ""bbox"": { ""type"": [""array"", ""null""] }
       }
     }");
@@ -89,12 +109,19 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         /// <summary>Una polilínea ya validada.</summary>
         private sealed class Item
         {
-            public Item(List<(double x, double y)> vertices, bool closed, List<double>? bulges, double width, bool zIgnored)
+            public Item(
+                List<(double x, double y)> vertices,
+                bool closed,
+                List<double>? bulges,
+                double width,
+                IReadOnlyList<IReadOnlyList<(double x, double y)>>? holes,
+                bool zIgnored)
             {
                 Vertices = vertices;
                 Closed = closed;
                 Bulges = bulges;
                 Width = width;
+                Holes = holes;
                 ZIgnored = zIgnored;
             }
 
@@ -102,6 +129,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             public bool Closed { get; }
             public List<double>? Bulges { get; }
             public double Width { get; }
+            public IReadOnlyList<IReadOnlyList<(double x, double y)>>? Holes { get; }
             public bool ZIgnored { get; }
         }
 
@@ -134,10 +162,11 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             ParamReader.RequireObject(p, Allowed);
             bool hasBatch = ParamReader.Has(p, "polilineas");
             bool hasSimple = ParamReader.Has(p, "vertices") || ParamReader.Has(p, "cerrada")
-                || ParamReader.Has(p, "bulges") || ParamReader.Has(p, "ancho");
+                || ParamReader.Has(p, "bulges") || ParamReader.Has(p, "ancho")
+                || ParamReader.Has(p, "huecos");
             if (hasBatch && hasSimple)
             {
-                throw ToolException.InvalidParams("polilineas: no se puede combinar con vertices, cerrada, bulges o ancho");
+                throw ToolException.InvalidParams("polilineas: no se puede combinar con vertices, cerrada, bulges, ancho o huecos");
             }
 
             var items = new List<Item>();
@@ -211,13 +240,68 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                     throw ToolException.InvalidParams(errors[0]);
                 }
 
-                return new Item(vertices, closed, bulges, width, zIgnored);
+                List<IReadOnlyList<(double x, double y)>>? holes = ReadOptionalHoles(src, "huecos", ref zIgnored);
+                if (holes != null)
+                {
+                    if (!closed)
+                    {
+                        throw ToolException.InvalidParams("huecos: solo aplica a polilíneas cerradas (cerrada: true)");
+                    }
+
+                    string? holeErr = PolygonHoleRules.ValidateHoles(vertices, holes, "huecos");
+                    if (holeErr != null)
+                    {
+                        throw ToolException.InvalidParams(holeErr);
+                    }
+                }
+
+                return new Item(vertices, closed, bulges, width, holes, zIgnored);
             }
             catch (ToolException ex) when (prefix.Length > 0 && ex.Code == ErrorCodes.InvalidParams)
             {
                 string detalle = ex.ExtraData.TryGetValue("detalle", out object? d) ? d?.ToString() ?? "" : "";
                 throw ToolException.InvalidParams(prefix + detalle);
             }
+        }
+
+        internal static List<IReadOnlyList<(double x, double y)>>? ReadOptionalHoles(
+            JsonElement src, string fieldName, ref bool zIgnored)
+        {
+            if (!src.TryGetProperty(fieldName, out JsonElement holesEl))
+            {
+                return null;
+            }
+
+            if (holesEl.ValueKind != JsonValueKind.Array || holesEl.GetArrayLength() < 1 || holesEl.GetArrayLength() > PolygonHoleRules.MaxHoles)
+            {
+                throw ToolException.InvalidParams(fieldName + ": debe ser un array de 1 a " + PolygonHoleRules.MaxHoles + " anillos");
+            }
+
+            var holes = new List<IReadOnlyList<(double x, double y)>>(holesEl.GetArrayLength());
+            int hi = 0;
+            foreach (JsonElement ringEl in holesEl.EnumerateArray())
+            {
+                string ringLabel = fieldName + "[" + hi.ToString(CultureInfo.InvariantCulture) + "]";
+                if (ringEl.ValueKind != JsonValueKind.Array || ringEl.GetArrayLength() < 3 || ringEl.GetArrayLength() > 1000)
+                {
+                    throw ToolException.InvalidParams(ringLabel + ": debe ser un array de 3 a 1000 puntos");
+                }
+
+                var ring = new List<(double x, double y)>(ringEl.GetArrayLength());
+                int pi = 0;
+                foreach (JsonElement ptEl in ringEl.EnumerateArray())
+                {
+                    Point3 pt = ParamReader.ReadPoint(ptEl, ringLabel + "[" + pi.ToString(CultureInfo.InvariantCulture) + "]");
+                    ring.Add((pt.X, pt.Y));
+                    zIgnored |= pt.Z != 0;
+                    pi++;
+                }
+
+                holes.Add(ring);
+                hi++;
+            }
+
+            return holes;
         }
 
         public object Execute(JsonElement parameters, ExecutionContext ctx)
@@ -274,15 +358,52 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                     string handle = DrawWrite.Append(space, tr, pl);
                     handles.Add(handle);
 
-                    entidades.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
+                    double? outerArea = item.Closed && PrimitiveSupport.TryNumber(() => pl.Area) is double oa ? oa : null;
+                    var dict = new Dictionary<string, object?>(StringComparer.Ordinal)
                     {
                         ["handle"] = handle,
                         ["n_vertices"] = pl.NumberOfVertices,
                         ["cerrada"] = pl.Closed,
                         ["longitud"] = PrimitiveSupport.TryNumber(() => pl.Length),
-                        ["area"] = item.Closed ? PrimitiveSupport.TryNumber(() => pl.Area) : null,
+                        ["area"] = outerArea,
                         ["bbox"] = PrimitiveSupport.Box2D(pl),
-                    });
+                    };
+
+                    if (item.Holes != null)
+                    {
+                        var holeHandles = new List<string>(item.Holes.Count);
+                        double holesArea = 0.0;
+                        foreach (IReadOnlyList<(double x, double y)> hole in item.Holes)
+                        {
+                            var hpl = new Polyline(hole.Count);
+                            DrawWrite.ApplyByLayer(hpl, db, layer.Id);
+                            EntityColor.Apply(hpl, p.Color);
+                            for (int hi = 0; hi < hole.Count; hi++)
+                            {
+                                hpl.AddVertexAt(hi, new Point2d(hole[hi].x, hole[hi].y), 0.0, 0, 0);
+                            }
+
+                            hpl.Closed = true;
+                            hpl.Elevation = 0;
+                            hpl.Normal = Vector3d.ZAxis;
+                            hpl.ConstantWidth = item.Width;
+                            string hHandle = DrawWrite.Append(space, tr, hpl);
+                            handles.Add(hHandle);
+                            holeHandles.Add(hHandle);
+                            if (PrimitiveSupport.TryNumber(() => hpl.Area) is double hArea)
+                            {
+                                holesArea += hArea;
+                            }
+                        }
+
+                        dict["handles_huecos"] = holeHandles;
+                        dict["n_huecos"] = holeHandles.Count;
+                        dict["area_bruta"] = outerArea;
+                        dict["area_huecos"] = holesArea;
+                        dict["area"] = outerArea.HasValue ? Math.Max(0.0, outerArea.Value - holesArea) : null;
+                    }
+
+                    entidades.Add(dict);
                 }
 
                 tr.Commit();

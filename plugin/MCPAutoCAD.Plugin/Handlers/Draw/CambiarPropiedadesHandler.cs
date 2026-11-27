@@ -96,7 +96,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
 }");
 
         /// <summary>Tipo de línea pedido: nombre, o "porcapa" / "porbloque".</summary>
-        private sealed class Props
+        internal sealed class Props
         {
             public ColorSpec? Color { get; set; }
 
@@ -159,6 +159,14 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         {
             ParamReader.RequireObject(p, Allowed);
             List<string> handles = ParamReader.RequiredHandles(p, "handles", 1, EntityPropertyRules.MaxHandles);
+            Props props = ParseProps(p);
+            CleanWrite.Common common = CleanWrite.ReadCommon(p);
+            return new Params(handles, props, common);
+        }
+
+        /// <summary>Lee color/tipo_linea/escala_tipo_linea/grosor/transparencia desde <paramref name="p"/> (sin AutoCAD).</summary>
+        internal static Props ParseProps(JsonElement p)
+        {
             var props = new Props();
 
             props.Color = EntityColor.Read(p);
@@ -236,8 +244,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 throw ToolException.InvalidParams(EntityPropertyRules.NoProperties);
             }
 
-            CleanWrite.Common common = CleanWrite.ReadCommon(p);
-            return new Params(handles, props, common);
+            return props;
         }
 
         public object Execute(JsonElement parameters, ExecutionContext ctx)
@@ -424,7 +431,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         }
 
         /// <summary>Aplica las propiedades pedidas a una entidad ya abierta para escritura.</summary>
-        private static void Apply(Entity e, Props props, Database db, ObjectId namedLinetype)
+        internal static void Apply(Entity e, Props props, Database db, ObjectId namedLinetype)
         {
             if (props.Color != null)
             {
@@ -581,10 +588,10 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             map[value] = n + 1;
         }
 
-        private static bool IsKeyword(string tipo) => tipo == "porcapa" || tipo == "porbloque";
+        internal static bool IsKeyword(string tipo) => tipo == "porcapa" || tipo == "porbloque";
 
         /// <summary>Nombre real (con sus mayúsculas) del tipo de línea cargado con ese nombre, o null.</summary>
-        private static string? LoadedName(Database db, string name)
+        internal static string? LoadedName(Database db, string name)
         {
             ObjectId id = FindLinetype(db, name);
             if (id.IsNull)
@@ -602,7 +609,7 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         }
 
         /// <summary>Id del tipo de línea cargado con ese nombre (sin distinguir mayúsculas), o Null.</summary>
-        private static ObjectId FindLinetype(Database db, string name)
+        internal static ObjectId FindLinetype(Database db, string name)
         {
             using (Transaction tr = db.TransactionManager.StartOpenCloseTransaction())
             {
@@ -626,11 +633,63 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
         }
 
         /// <summary>
-        /// Tipo de línea por nombre. Si no está cargado y <paramref name="load"/>, lo carga de acad.lin (MEASUREMENT
-        /// imperial) o acadiso.lin (métrico) FUERA de cualquier transacción (dentro del paso de deshacer). Si no existe
-        /// tras intentarlo → INVALID_PARAMS con las opciones cargadas. Sin load devuelve Null si no está cargado.
+        /// Intenta garantizar que <paramref name="name"/> esté cargado en <paramref name="db"/>. Si falta, intenta cargarlo
+        /// desde <paramref name="archivo"/> (o desde el fichero estándar según MEASUREMENT y su alternativo) FUERA de cualquier
+        /// transacción (dentro del paso de deshacer). Devuelve <c>true</c> si queda disponible en la tabla; <paramref name="loadedFrom"/>
+        /// indica el fichero usado solo cuando se cargó en esta llamada.
         /// </summary>
-        private static ObjectId ResolveLinetype(Database db, string name, List<string> warnings, bool load)
+        internal static bool TryEnsureLinetypeLoaded(Database db, string name, string? archivo, out string? loadedFrom)
+        {
+            loadedFrom = null;
+            if (string.IsNullOrWhiteSpace(name)
+                || string.Equals(name, "Continuous", StringComparison.OrdinalIgnoreCase)
+                || !FindLinetype(db, name).IsNull)
+            {
+                return true;
+            }
+
+            if (EntityPropertyRules.LinetypeNameError(name) != null)
+            {
+                return false;
+            }
+
+            try
+            {
+                SymbolUtilityServices.ValidateSymbolName(name, false);
+            }
+            catch (Autodesk.AutoCAD.Runtime.Exception)
+            {
+                return false;
+            }
+
+            string[] files = EntityPropertyRules.LinetypeFilesToTry(AcadUtil.Measurement(db), archivo);
+            foreach (string file in files)
+            {
+                try
+                {
+                    db.LoadLineTypeFile(name, file);
+                }
+                catch (Exception)
+                {
+                    // No está en ese .lin o ruta no encontrada: probar el alternativo si no se fijó archivo.
+                }
+
+                if (!FindLinetype(db, name).IsNull)
+                {
+                    loadedFrom = file;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Tipo de línea por nombre. Si no está cargado y <paramref name="load"/>, lo carga de acad.lin (MEASUREMENT
+        /// imperial) o acadiso.lin (métrico) y alternativo FUERA de cualquier transacción (dentro del paso de deshacer). Si no
+        /// existe tras intentarlo → INVALID_PARAMS con las opciones cargadas. Sin load devuelve Null si no está cargado.
+        /// </summary>
+        internal static ObjectId ResolveLinetype(Database db, string name, List<string> warnings, bool load)
         {
             ObjectId id = FindLinetype(db, name);
             if (!id.IsNull || !load)
@@ -638,7 +697,6 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 return id;
             }
 
-            string file = EntityPropertyRules.LinetypeFileFor(AcadUtil.Measurement(db));
             try
             {
                 SymbolUtilityServices.ValidateSymbolName(name, false);
@@ -649,28 +707,27 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                     "tipo_linea: '" + name + "' no es un nombre de tipo de línea válido.");
             }
 
-            try
+            if (TryEnsureLinetypeLoaded(db, name, null, out string? loadedFrom))
             {
-                db.LoadLineTypeFile(name, file);
-            }
-            catch (Exception)
-            {
-                // Nombre no encontrado en el fichero o nombre inválido: se trata abajo.
+                id = FindLinetype(db, name);
+                if (!id.IsNull)
+                {
+                    if (loadedFrom != null)
+                    {
+                        warnings.Add("tipo de línea '" + name + "' cargado de " + loadedFrom + ".");
+                    }
+
+                    return id;
+                }
             }
 
-            id = FindLinetype(db, name);
-            if (!id.IsNull)
-            {
-                warnings.Add("tipo de línea '" + name + "' cargado de " + file + ".");
-                return id;
-            }
-
+            string file = EntityPropertyRules.LinetypeFileFor(AcadUtil.Measurement(db));
             throw ToolException.InvalidParams(
                 "tipo_linea: '" + name + "' no está cargado en el dibujo ni en " + file + ".",
                 new Dictionary<string, object?> { ["opciones"] = LoadedLinetypes(db) });
         }
 
-        private static List<string> LoadedLinetypes(Database db)
+        internal static List<string> LoadedLinetypes(Database db)
         {
             var names = new List<string>();
             using (Transaction tr = db.TransactionManager.StartOpenCloseTransaction())

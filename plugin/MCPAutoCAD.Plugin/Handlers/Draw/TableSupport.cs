@@ -150,9 +150,165 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
                 // Si no expone CellStyles, se continúa sin cambiar el estilo de celda.
             }
 
-            double vMargin = double.IsFinite(resolved.VerticalCellMargin) ? Math.Max(0.0, resolved.VerticalCellMargin) : 0.0;
-            double hMargin = double.IsFinite(resolved.HorizontalCellMargin) ? Math.Max(0.0, resolved.HorizontalCellMargin) : 0.0;
+            double vMargin = ReadStyleMargin(resolved, dataStyleCandidates: new[] { "Data", "_DATA" }, isVertical: true);
+            double hMargin = ReadStyleMargin(resolved, dataStyleCandidates: new[] { "Data", "_DATA" }, isVertical: false);
             return new TableStyleInfo(targetId, finalName, vMargin, hMargin, cellStyles);
+        }
+
+        private static double ReadStyleMargin(TableStyle ts, string[] dataStyleCandidates, bool isVertical)
+        {
+            double maxVal = 0.0;
+#pragma warning disable CS0618
+            double topLevel = isVertical ? ts.VerticalCellMargin : ts.HorizontalCellMargin;
+#pragma warning restore CS0618
+            if (double.IsFinite(topLevel) && topLevel > maxVal)
+            {
+                maxVal = topLevel;
+            }
+
+            foreach (string style in dataStyleCandidates)
+            {
+                try
+                {
+                    if (isVertical)
+                    {
+                        double top = ts.Margin(CellMargins.Top, style);
+                        double bot = ts.Margin(CellMargins.Bottom, style);
+                        if (double.IsFinite(top) && top > maxVal) maxVal = top;
+                        if (double.IsFinite(bot) && bot > maxVal) maxVal = bot;
+                    }
+                    else
+                    {
+                        double left = ts.Margin(CellMargins.Left, style);
+                        double right = ts.Margin(CellMargins.Right, style);
+                        if (double.IsFinite(left) && left > maxVal) maxVal = left;
+                        if (double.IsFinite(right) && right > maxVal) maxVal = right;
+                    }
+                }
+                catch (Autodesk.AutoCAD.Runtime.Exception)
+                {
+                    // El estilo no expone ese CellStyle: se ignora.
+                }
+            }
+
+            return maxVal;
+        }
+
+        /// <summary>
+        /// Lee el margen efectivo actual de una tabla (nivel tabla y celda 0,0) para decidir reducciones seguras al editar anchos/altos.
+        /// </summary>
+        public static (double Vertical, double Horizontal) ReadCurrentMargins(Table table)
+        {
+            double v = 0.0;
+            double h = 0.0;
+            try
+            {
+#pragma warning disable CS0618
+                if (double.IsFinite(table.VerticalCellMargin)) v = Math.Max(v, table.VerticalCellMargin);
+                if (double.IsFinite(table.HorizontalCellMargin)) h = Math.Max(h, table.HorizontalCellMargin);
+                if (table.Rows.Count > 0 && table.Columns.Count > 0)
+                {
+                    double t = table.GetMargin(0, 0, CellMargins.Top);
+                    double b = table.GetMargin(0, 0, CellMargins.Bottom);
+                    double l = table.GetMargin(0, 0, CellMargins.Left);
+                    double r = table.GetMargin(0, 0, CellMargins.Right);
+                    if (double.IsFinite(t)) v = Math.Max(v, t);
+                    if (double.IsFinite(b)) v = Math.Max(v, b);
+                    if (double.IsFinite(l)) h = Math.Max(h, l);
+                    if (double.IsFinite(r)) h = Math.Max(h, r);
+                }
+#pragma warning restore CS0618
+            }
+            catch (Autodesk.AutoCAD.Runtime.Exception)
+            {
+                // Ignorar si la tabla aún no expone márgenes por celda.
+            }
+
+            return (v, h);
+        }
+
+        /// <summary>
+        /// Aplica márgenes en los tres niveles de AutoCAD (propiedad de tabla, bordes del rango global y cada celda)
+        /// para neutralizar los márgenes por defecto del estilo Standard (1.5 u = 3.0 u extra por columna).
+        /// </summary>
+        public static void ApplyMargins(Table table, double? vert, double? horiz)
+        {
+            if (!vert.HasValue && !horiz.HasValue)
+            {
+                return;
+            }
+
+#pragma warning disable CS0618
+            if (vert.HasValue)
+            {
+                table.VerticalCellMargin = vert.Value;
+            }
+
+            if (horiz.HasValue)
+            {
+                table.HorizontalCellMargin = horiz.Value;
+            }
+#pragma warning restore CS0618
+
+            if (vert.HasValue)
+            {
+                TrySetBorderMargin(() => table.Cells.Borders.Top.Margin = vert.Value);
+                TrySetBorderMargin(() => table.Cells.Borders.Bottom.Margin = vert.Value);
+                TrySetBorderMargin(() => table.Cells.Borders.Horizontal.Margin = vert.Value);
+            }
+
+            if (horiz.HasValue)
+            {
+                TrySetBorderMargin(() => table.Cells.Borders.Left.Margin = horiz.Value);
+                TrySetBorderMargin(() => table.Cells.Borders.Right.Margin = horiz.Value);
+                TrySetBorderMargin(() => table.Cells.Borders.Vertical.Margin = horiz.Value);
+            }
+
+            int rows = table.Rows.Count;
+            int cols = table.Columns.Count;
+            for (int r = 0; r < rows; r++)
+            {
+                for (int c = 0; c < cols; c++)
+                {
+#pragma warning disable CS0618
+                    if (vert.HasValue)
+                    {
+                        TrySetBorderMargin(() => table.SetMargin(r, c, CellMargins.Top, vert.Value));
+                        TrySetBorderMargin(() => table.SetMargin(r, c, CellMargins.Bottom, vert.Value));
+                    }
+
+                    if (horiz.HasValue)
+                    {
+                        TrySetBorderMargin(() => table.SetMargin(r, c, CellMargins.Left, horiz.Value));
+                        TrySetBorderMargin(() => table.SetMargin(r, c, CellMargins.Right, horiz.Value));
+                    }
+#pragma warning restore CS0618
+                    Cell cell = table.Cells[r, c];
+                    if (vert.HasValue)
+                    {
+                        TrySetBorderMargin(() => cell.Borders.Top.Margin = vert.Value);
+                        TrySetBorderMargin(() => cell.Borders.Bottom.Margin = vert.Value);
+                    }
+
+                    if (horiz.HasValue)
+                    {
+                        TrySetBorderMargin(() => cell.Borders.Left.Margin = horiz.Value);
+                        TrySetBorderMargin(() => cell.Borders.Right.Margin = horiz.Value);
+                    }
+                }
+            }
+        }
+
+        private static void TrySetBorderMargin(Action setter)
+        {
+            try
+            {
+                setter();
+            }
+            catch (Autodesk.AutoCAD.Runtime.Exception)
+            {
+                // Bordes internos pueden no aplicar en tablas 1×1 o celdas combinadas.
+            }
         }
 
         /// <summary>Busca el estilo de celda de datos ('Data' o '_DATA') para neutralizar los estilos Title/Header por defecto.</summary>
@@ -488,6 +644,44 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             }
         }
 
+        /// <summary>
+        /// Devuelve el rango combinado no trivial de la celda (o null si no está combinada). No confía en
+        /// <c>Cell.IsMerged</c>, que en AutoCAD puede devolver false aunque la celda pertenezca a un rango combinado.
+        /// </summary>
+        public static CellRange? TryGetMergeRange(Table table, int row, int col)
+        {
+            try
+            {
+                Cell cell = table.Cells[row, col];
+                CellRange? mr = cell.GetMergeRange();
+                if (mr != null && !mr.IsNull && (mr.BottomRow > mr.TopRow || mr.RightColumn > mr.LeftColumn))
+                {
+                    return mr;
+                }
+            }
+            catch (Autodesk.AutoCAD.Runtime.Exception)
+            {
+                // Se intenta el método directo sobre Table.
+            }
+
+            try
+            {
+#pragma warning disable CS0618
+                CellRange? mr = table.GetMergeRange(row, col);
+#pragma warning restore CS0618
+                if (mr != null && !mr.IsNull && (mr.BottomRow > mr.TopRow || mr.RightColumn > mr.LeftColumn))
+                {
+                    return mr;
+                }
+            }
+            catch (Autodesk.AutoCAD.Runtime.Exception)
+            {
+                // Celda no combinada.
+            }
+
+            return null;
+        }
+
         /// <summary>Recoge todas las combinaciones activas únicas (no triviales) de la tabla.</summary>
         public static List<TableMerge> CollectMerges(Table table)
         {
@@ -500,14 +694,8 @@ namespace MCPAutoCAD.Plugin.Handlers.Draw
             {
                 for (int c = 0; c < cols; c++)
                 {
-                    Cell cell = table.Cells[r, c];
-                    if (cell.IsMerged != true)
-                    {
-                        continue;
-                    }
-
-                    CellRange mr = cell.GetMergeRange();
-                    if (mr == null || mr.IsNull || mr.IsSingleCell)
+                    CellRange? mr = TryGetMergeRange(table, r, c);
+                    if (mr == null)
                     {
                         continue;
                     }

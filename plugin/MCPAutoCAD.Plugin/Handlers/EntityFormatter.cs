@@ -465,6 +465,7 @@ namespace MCPAutoCAD.Plugin.Handlers
 
             d["puntos_definicion"] = points;
             d["posicion_texto"] = Try(() => AcadUtil.PointOrNull(dim.TextPosition));
+            d["fondo_texto"] = Try(() => Draw.DimTextFillUtil.SafeDescribe(() => dim.Dimtfill, () => dim.Dimtfillclr));
         }
 
         private static void AddAttributeExtras(Dictionary<string, object?> d, AttributeReference attr, Transaction tr)

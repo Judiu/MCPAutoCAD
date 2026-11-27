@@ -152,6 +152,17 @@ namespace MCPAutoCAD.GeometryCore.Tests.Draw
             Assert.False(req.AutoAdjusted);
             Assert.Equal(0.08, req.Vertical);
             Assert.Equal(0.10, req.Horizontal);
+
+            // Fallo 53 (papel en metros: col 0.0325, texto 0.0033): reduce drásticamente el margen 1.5
+            SafeMarginsResult paperM = TableRules.ComputeSafeMargins(1.5, 1.5, 0.008, 0.0325, 0.0033, null, null);
+            Assert.True(paperM.AutoAdjusted);
+            Assert.True(paperM.Horizontal!.Value <= 0.002);
+            Assert.True(paperM.Vertical!.Value <= 0.002);
+
+            // Fallo 53 (espacio modelo: col 1.625, texto 0.165): margen 1.5 del estilo Standard también se reduce
+            SafeMarginsResult modelM = TableRules.ComputeSafeMargins(1.5, 1.5, 0.40, 1.625, 0.165, null, null);
+            Assert.True(modelM.AutoAdjusted);
+            Assert.True(modelM.Horizontal!.Value < 0.10);
         }
 
         [Fact]
